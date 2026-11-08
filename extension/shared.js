@@ -21,7 +21,7 @@ globalThis.Iblock = (() => {
 
   // null means "no limit, just count". 0 means short-form is always blocked.
   const LIMIT_STEPS = Object.freeze([0, 3, 5, 10, 15, 20, 30, 50, 100, null]);
-  const LOCK_PRESETS = Object.freeze([30, 60, 180, 300, 1440]);
+  const LOCK_PRESETS = Object.freeze([30, 60, 180, 300]);
   const MAX_LOCK_MIN = 7 * 1440;
   const HOLD_TO_UNLOCK_MS = 10_000;
   const KEEP_DAYS = 400;
@@ -337,9 +337,11 @@ globalThis.Iblock = (() => {
   }
 
   function fmtLockLength(min) {
-    if (min < 60) return `${min} minutes`;
-    const h = min / 60;
-    return h === 1 ? '1 hour' : `${h} hours`;
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    if (!h) return m === 1 ? '1 minute' : `${m} minutes`;
+    if (!m) return h === 1 ? '1 hour' : `${h} hours`;
+    return `${h}h ${m}m`;
   }
 
   const plural = (n, one, many) => `${fmtNum(n)} ${n === 1 ? one : many}`;

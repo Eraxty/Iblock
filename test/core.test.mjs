@@ -259,6 +259,9 @@ describe('formatting', () => {
     assert.equal(I.fmtLockLength(30), '30 minutes');
     assert.equal(I.fmtLockLength(60), '1 hour');
     assert.equal(I.fmtLockLength(300), '5 hours');
+    assert.equal(I.fmtLockLength(1440), '24 hours');
+    assert.equal(I.fmtLockLength(150), '2h 30m');
+    assert.equal(I.fmtLockLength(1), '1 minute');
     assert.equal(I.fmtLockChip(1440), '24h');
     assert.equal(I.plural(1, 'scroll', 'scrolls'), '1 scroll');
     assert.equal(I.plural(2, 'scroll', 'scrolls'), '2 scrolls');

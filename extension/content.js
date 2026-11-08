@@ -105,7 +105,8 @@
   let pendingSeconds = 0;
   let boundaryTimer = 0;
   let tickTimer = 0;
-  let hudCount = -1;
+  let hudKey = ''; // what the pill last showed; it only pops up when this changes
+  let hudTimer = 0;
   let ui = null;
   let hideStyle = null;
 
@@ -172,6 +173,8 @@
     if (!alive || !res) return;
     if (res.allowed) {
       allowedItem = item;
+      const day = I.touchDay(state.stats);
+      day.n = Math.max(day.n, res.total);
     } else {
       // The background had newer news (another tab used up the limit). It has
       // already recorded the block, so just catch up and show the lock screen.
@@ -313,6 +316,7 @@
     if (changes.settings) state.settings = I.normalizeSettings(changes.settings.newValue);
     if (changes.stats) state.stats = I.normalizeStats(changes.stats.newValue);
     if (changes.lock) state.lock = I.normalizeLock(changes.lock.newValue);
+    if (changes.settings) applyTheme();
     check();
   }
 
@@ -348,6 +352,7 @@
     for (const id of intervals) clearInterval(id);
     clearTimeout(boundaryTimer);
     clearInterval(tickTimer);
+    clearTimeout(hudTimer);
     for (const [target, type, fn, opts] of listeners) target.removeEventListener(type, fn, opts);
     try {
       ext.storage.onChanged.removeListener(onStorage);
@@ -403,16 +408,16 @@
     .mark-bar { fill: var(--accent); stroke: var(--ink); }
 
     .hud {
-      position: fixed; top: 72px; left: 50%;
+      position: fixed; top: 72px; right: 16px;
       display: flex; align-items: center; gap: 6px;
       height: 32px; padding: 0 12px 0 8px;
       border-radius: 999px; border: 1px solid var(--line);
       background: var(--surface); box-shadow: var(--shadow);
       font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
-      pointer-events: none; opacity: 0; transform: translate(-50%, -6px);
-      transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+      pointer-events: none; opacity: 0; transform: translateY(-6px);
+      transition: opacity 0.25s ease-out, transform 0.25s ease-out;
     }
-    .hud.show { opacity: 0.96; transform: translate(-50%, 0); }
+    .hud.show { opacity: 0.96; transform: none; }
     .hud.bump .hud-num { animation: bump 0.25s ease-out; }
     .hud-ring { width: 18px; height: 18px; transform: rotate(-90deg); }
     .hud-ring circle { fill: none; stroke-width: 2.5; }
@@ -679,10 +684,15 @@
     }
   }
 
+  // The pill pops up in the corner when you land on a new short, then gets
+  // out of the way. It lingers a little longer when you're nearly out.
   function showHud(st) {
     if (!state.settings.hud) return hideHud();
-    const u = ensureUi();
+    if (pendingItem !== null) return; // wait for the new count, then show it once
     const n = st.today.n;
+    const key = `${n}|${st.limit}`;
+    if (key === hudKey) return;
+    const u = ensureUi();
     u.hudNum.textContent = I.fmtNum(n);
     u.hudOf.textContent = st.limit === null ? ' today' : `/${st.limit}`;
     const progress = st.limit ? Math.min(1, n / st.limit) : 0;
@@ -690,16 +700,20 @@
     const warn = st.left !== null && st.left <= 2;
     u.hud.classList.toggle('warn', warn);
     u.hudNote.textContent = !warn ? '' : st.left === 0 ? 'last one' : `${st.left} left`;
-    if (hudCount !== -1 && n !== hudCount) {
+    if (hudKey && u.hud.classList.contains('show')) {
       u.hud.classList.remove('bump');
       void u.hud.offsetWidth; // restart the animation
       u.hud.classList.add('bump');
     }
-    hudCount = n;
+    hudKey = key;
     u.hud.classList.add('show');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => u.hud.classList.remove('show'), warn ? 4000 : 2500);
   }
 
   function hideHud() {
+    clearTimeout(hudTimer);
+    hudKey = '';
     ui?.hud.classList.remove('show');
   }
 

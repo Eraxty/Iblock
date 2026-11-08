@@ -7,12 +7,12 @@ Works on **YouTube Shorts, Instagram Reels, TikTok, Snapchat Spotlight and Faceb
 ## What it does
 
 - **Scroll counter.** Every new short you land on counts as one scroll. See today, this month and lifetime, plus time watched, per app.
-- **Daily limit.** Pick 3, 5, 10 … 100 scrolls a day, "blocked completely", or no limit (just counting). You always get to finish the short you're on; the next one is blocked.
-- **Take a break.** Lock all short-form for 30 minutes, 1, 3, 5 or 24 hours. Ending a lock early takes a 10-second press-and-hold, not a reflex click.
+- **Daily limit.** Step through 3, 5, 10 … 100 scrolls a day, type any number up to 999, pick "blocked completely" (0), or no limit (just counting). You always get to finish the short you're on; the next one is blocked.
+- **Take a break.** Lock all short-form for 30 minutes, 1, 3 or 5 hours, or type a custom length up to 7 days. Ending a lock early takes a 10-second press-and-hold, not a reflex click.
 - **Bedtime mode.** Block short-form every night between two times.
 - **Strict mode.** While a lock, bedtime or your limit is active, you can tighten settings but not loosen them: no raising the limit, turning sites off or unlocking early.
 - **Lock screen.** Covers the page, pauses the video, stops the player from skipping ahead, and offers a way out (home page or close tab).
-- **On-page counter.** A small pill shows `7/10` while you watch, and warns when you're down to the last couple.
+- **On-page counter.** A small pill pops up in the corner with `7/10` each time you swipe, then fades away. It stays a bit longer when you're down to the last couple.
 - **Hides the bait.** While locked, Shorts shelves, the Shorts tab and Reels links disappear from YouTube and Instagram.
 - **Insights.** Last 7 days chart against your limit, week-over-week change, streak of days under your limit, shorts blocked, breakdown by app.
 - **Light and dark themes**, following the system or set manually.
@@ -28,6 +28,8 @@ Everything is stored in your browser. Iblock makes no network requests and colle
 3. Click **Load unpacked** and pick the `extension` folder.
 4. Pin Iblock from the puzzle-piece menu so it's always one click away.
 
+Anywhere in the browser, **Alt+Shift+O** opens the Iblock menu. Change it at `chrome://extensions/shortcuts`, or in Firefox/Zen under `about:addons` → gear → **Manage Extension Shortcuts**.
+
 Tabs that were already open get Iblock straight away; no reload needed.
 
 ### Firefox
@@ -36,9 +38,19 @@ Tabs that were already open get Iblock straight away; no reload needed.
 npm run build
 ```
 
-Then open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick `dist/firefox/manifest.json`. Temporary add-ons are removed when Firefox restarts; for a permanent install, upload `dist/iblock-firefox-1.0.0.zip` to [addons.mozilla.org](https://addons.mozilla.org/developers/) to get it signed.
+Then open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick `dist/firefox/manifest.json`. Temporary add-ons are removed when Firefox restarts; for a permanent install, upload `dist/iblock-firefox.zip` to [addons.mozilla.org](https://addons.mozilla.org/developers/) to get it signed.
 
 If the popup says it can't see the sites yet, click **Allow access**.
+
+### Zen (and other Firefox builds that allow unsigned add-ons)
+
+These can install Iblock permanently without signing:
+
+1. Open `about:config` and set `xpinstall.signatures.required` to `false`.
+2. Run `npm run build`.
+3. Open `about:addons`, click the gear icon, choose **Install Add-on From File…** and pick `dist/iblock-firefox.xpi`.
+
+To update later, run `npm run build` again and install the new `.xpi` the same way. In Chrome, click the reload arrow on Iblock's card in `chrome://extensions`.
 
 ## How counting works
 

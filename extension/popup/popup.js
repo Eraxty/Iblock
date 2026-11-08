@@ -8,6 +8,8 @@
   const RING = 2 * Math.PI * 44;
   const BAR_AREA = 92; // px of the 112px plot used by bars; the rest fits the value label
   const STRICT_MSG = 'Strict mode is on. You can loosen this once the lock is over.';
+  const CUSTOM = 'custom';
+  const MAX_LIMIT = 999;
 
   const GLYPHS = {
     youtube:
@@ -26,20 +28,40 @@
   let state = null;
   let view = 'today';
   let tab = 'today';
-  let lockMinutes = readLockMinutes();
+  let lockChoice = readLockChoice(); // a preset length in minutes, or CUSTOM
+  let customMinutes = readCustomMinutes();
   let appliedTheme = '';
   let toastTimer = 0;
   let resetTimer = 0;
 
   /* ---------- small helpers ---------- */
 
-  function readLockMinutes() {
+  function recall(key) {
     try {
-      const value = Number(localStorage.getItem('iblock:lockMinutes'));
-      return I.LOCK_PRESETS.includes(value) ? value : 60;
+      return localStorage.getItem(`iblock:${key}`);
     } catch {
-      return 60;
+      return null;
     }
+  }
+
+  function readLockChoice() {
+    const value = recall('lockChoice');
+    if (value === CUSTOM) return CUSTOM;
+    return I.LOCK_PRESETS.includes(Number(value)) ? Number(value) : 60;
+  }
+
+  function readCustomMinutes() {
+    const value = Number(recall('customMinutes'));
+    return validLockLength(value) ? value : 120;
+  }
+
+  // Declarations, not arrow consts: readCustomMinutes() runs before this point.
+  function validLockLength(min) {
+    return Number.isInteger(min) && min >= 1 && min <= I.MAX_LOCK_MIN;
+  }
+
+  function selectedMinutes() {
+    return lockChoice === CUSTOM ? customMinutes : lockChoice;
   }
 
   function remember(key, value) {
@@ -76,6 +98,27 @@
 
   const failure = (res, fallback) => (res?.error === 'strict' ? STRICT_MSG : fallback);
 
+  // Number fields keep only digits, capped at `max`.
+  function digitsOnly(input, max) {
+    const digits = input.value.replace(/\D/g, '');
+    const value = digits && Number(digits) > max ? String(max) : digits;
+    if (value !== input.value) input.value = value;
+    return value;
+  }
+
+  // Clicking into a number selects it, so typing replaces it.
+  function selectOnFocus(input) {
+    let focusing = false;
+    input.addEventListener('focus', () => {
+      input.select();
+      focusing = true;
+    });
+    input.addEventListener('mouseup', (e) => {
+      if (focusing) e.preventDefault();
+      focusing = false;
+    });
+  }
+
   /* ---------- static structure ---------- */
 
   function build() {
@@ -88,14 +131,14 @@
     );
 
     $('lockChips').replaceChildren(
-      ...I.LOCK_PRESETS.map((min) => {
+      ...[...I.LOCK_PRESETS, CUSTOM].map((choice) => {
         const chip = el('button', 'chip');
         chip.type = 'button';
-        chip.dataset.min = String(min);
+        chip.dataset.choice = String(choice);
         chip.setAttribute('role', 'radio');
-        chip.setAttribute('aria-label', I.fmtLockLength(min));
-        chip.textContent = I.fmtLockChip(min);
-        chip.addEventListener('click', () => pickLock(min));
+        chip.setAttribute('aria-label', choice === CUSTOM ? 'Custom length' : I.fmtLockLength(choice));
+        chip.textContent = choice === CUSTOM ? 'Custom' : I.fmtLockChip(choice);
+        chip.addEventListener('click', () => pickLock(choice));
         return chip;
       }),
     );
@@ -129,7 +172,16 @@
       }),
     );
 
-    $('version').textContent = `Iblock ${ext.runtime.getManifest().version} · Everything stays on this device`;
+    const version = `Iblock ${ext.runtime.getManifest().version}`;
+    $('version').textContent = `${version} · Everything stays on this device`;
+    // Show the real shortcut, in case it was changed or taken by something else.
+    ext.commands
+      ?.getAll()
+      .then((commands) => {
+        const shortcut = commands.find((c) => c.name === '_execute_action')?.shortcut;
+        if (shortcut) $('version').textContent = `${version} · Open anytime with ${shortcut}`;
+      })
+      .catch(() => {});
   }
 
   /* ---------- rendering ---------- */
@@ -223,16 +275,33 @@
       $('lockStrictNote').hidden = !strict;
     }
     for (const chip of $('lockChips').children) {
-      const on = Number(chip.dataset.min) === lockMinutes;
+      const on = chip.dataset.choice === String(lockChoice);
       chip.setAttribute('aria-checked', String(on));
       chip.tabIndex = on ? 0 : -1;
     }
-    $('lockBtn').textContent = `Lock for ${I.fmtLockLength(lockMinutes)}`;
+
+    const custom = lockChoice === CUSTOM;
+    $('customFields').hidden = !custom;
+    if (custom) {
+      for (const [id, value] of [
+        ['customH', Math.floor(customMinutes / 60)],
+        ['customM', customMinutes % 60],
+      ]) {
+        const input = $(id);
+        if (document.activeElement !== input) input.value = String(value);
+      }
+    }
+    const minutes = selectedMinutes();
+    const ok = validLockLength(minutes);
+    const lockBtn = $('lockBtn');
+    lockBtn.disabled = !ok;
+    lockBtn.textContent = ok ? `Lock for ${I.fmtLockLength(minutes)}` : minutes < 1 ? 'Pick a length' : '7 days max';
   }
 
   function renderLimit(st) {
     const { limit } = state.settings;
-    $('limitValue').textContent = limit === null ? '∞' : String(limit);
+    const input = $('limitValue');
+    if (document.activeElement !== input) input.value = limit === null ? '∞' : String(limit);
     $('limitDesc').textContent =
       limit === null ? 'No limit, just counting' : limit === 0 ? 'Short-form is blocked completely' : `Locks after ${I.plural(limit, 'scroll', 'scrolls')} a day`;
     $('limitDown').disabled = I.stepLimit(limit, -1) === limit;
@@ -370,9 +439,9 @@
     return Boolean(res?.ok);
   }
 
-  function pickLock(min) {
-    lockMinutes = min;
-    remember('lockMinutes', min);
+  function pickLock(choice) {
+    lockChoice = choice;
+    remember('lockChoice', choice);
     render();
   }
 
@@ -427,7 +496,7 @@
     $('tab-today').addEventListener('click', () => setView('today'));
     $('tab-insights').addEventListener('click', () => setView('insights'));
     arrowNav($('tabs'), (button) => setView(button.id.replace('tab-', '')));
-    arrowNav($('lockChips'), (chip) => pickLock(Number(chip.dataset.min)));
+    arrowNav($('lockChips'), (chip) => pickLock(chip.dataset.choice === CUSTOM ? CUSTOM : Number(chip.dataset.choice)));
     $('settingsBtn').addEventListener('click', () => setView(view === 'settings' ? tab : 'settings'));
     $('backBtn').addEventListener('click', () => setView(tab));
 
@@ -438,7 +507,24 @@
       patch({ theme: state.settings.theme });
     });
 
-    $('lockBtn').addEventListener('click', () => startLock(lockMinutes, false));
+    $('lockBtn').addEventListener('click', () => startLock(selectedMinutes(), false));
+    for (const [id, max] of [
+      ['customH', I.MAX_LOCK_MIN / 60],
+      ['customM', 59],
+    ]) {
+      const input = $(id);
+      selectOnFocus(input);
+      input.addEventListener('input', () => {
+        digitsOnly(input, max);
+        customMinutes = Number($('customH').value || 0) * 60 + Number($('customM').value || 0);
+        if (validLockLength(customMinutes)) remember('customMinutes', customMinutes);
+        render();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !$('lockBtn').disabled) startLock(selectedMinutes(), false);
+      });
+      input.addEventListener('blur', render);
+    }
     $('extendBtn').addEventListener('click', () => startLock(60, true));
     I.holdButton($('unlockBtn'), async () => {
       const res = await I.send({ type: 'unlock' });
@@ -452,6 +538,17 @@
     });
 
     $('limitDown').addEventListener('click', () => patch({ limit: I.stepLimit(state.settings.limit, -1) }));
+    const limitInput = $('limitValue');
+    selectOnFocus(limitInput);
+    limitInput.addEventListener('input', () => digitsOnly(limitInput, MAX_LIMIT));
+    limitInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') limitInput.blur();
+    });
+    limitInput.addEventListener('change', () => {
+      const typed = digitsOnly(limitInput, MAX_LIMIT);
+      if (!typed || Number(typed) === state.settings.limit) return render();
+      patch({ limit: Number(typed) });
+    });
     $('limitUp').addEventListener('click', () => patch({ limit: I.stepLimit(state.settings.limit, 1) }));
 
     $('bedtimeOn').addEventListener('change', (e) => patch({ bedtime: { on: e.target.checked } }));

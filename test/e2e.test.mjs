@@ -256,6 +256,36 @@ test('popup: lock, strict mode and the limit stepper', async () => {
   await waitFor(async () => (await worker.evaluate(async () => (await chrome.storage.local.get('settings')).settings.limit)) === 10, 'limit lowered');
 });
 
+test('popup: type your own limit and lock length', async () => {
+  await seed({ settings: { limit: 10 } });
+  const popup = await openPage(`chrome-extension://${extensionId}/popup/popup.html`);
+  const storedLimit = () => worker.evaluate(async () => (await chrome.storage.local.get('settings')).settings.limit);
+
+  const limit = popup.getByRole('textbox', { name: 'Daily limit' });
+  await limit.fill('12');
+  await limit.press('Enter');
+  await waitFor(async () => (await storedLimit()) === 12, 'limit 12 saved');
+  await limit.fill('abc');
+  await limit.press('Enter');
+  await popup.waitForTimeout(300);
+  assert.equal(await storedLimit(), 12, 'junk input is ignored');
+  assert.equal(await limit.inputValue(), '12', 'and the field shows the real limit again');
+  await popup.getByRole('button', { name: 'Raise the daily limit' }).click();
+  await waitFor(async () => (await storedLimit()) === 15, '+ steps from a custom value to the next preset');
+
+  await popup.getByRole('radio', { name: 'Custom length' }).click();
+  await popup.getByRole('textbox', { name: 'Hours' }).fill('0');
+  await popup.getByRole('textbox', { name: 'Minutes' }).fill('0');
+  assert.equal(await popup.locator('#lockBtn').isDisabled(), true, "can't lock for zero minutes");
+  await popup.getByRole('textbox', { name: 'Minutes' }).fill('99');
+  assert.equal(await popup.getByRole('textbox', { name: 'Minutes' }).inputValue(), '59', 'minutes cap at 59');
+  await popup.getByRole('textbox', { name: 'Hours' }).fill('2');
+  await popup.getByRole('textbox', { name: 'Minutes' }).fill('15');
+  await popup.getByRole('button', { name: 'Lock for 2h 15m' }).click();
+  const lock = await waitFor(() => worker.evaluate(async () => (await chrome.storage.local.get('lock')).lock), 'lock stored');
+  assert.ok(Math.abs(lock.until - lock.start - 135 * 60e3) < 3000, 'locked for 2h 15m');
+});
+
 // On install/update the background injects the content script into tabs that
 // are already open, so a tab can end up with two copies. The newer one must
 // take over: one counter on screen, every short counted once.

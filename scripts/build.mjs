@@ -112,9 +112,16 @@ function build(target, targetManifest) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, data);
   }
-  const zipPath = path.join(DIST, `iblock-${target}-${manifest.version}.zip`);
-  fs.writeFileSync(zipPath, zip(entries));
+  const zipPath = path.join(DIST, `iblock-${target}.zip`);
+  const archive = zip(entries);
+  fs.writeFileSync(zipPath, archive);
   console.log(`${target.padEnd(8)} ${path.relative(ROOT, outDir)}/  ${path.relative(ROOT, zipPath)}  (${entries.length} files)`);
+  if (target === 'firefox') {
+    // Same archive under the extension Firefox-based browsers install from a file.
+    const xpiPath = zipPath.replace(/\.zip$/, '.xpi');
+    fs.writeFileSync(xpiPath, archive);
+    console.log(`${''.padEnd(8)} ${path.relative(ROOT, xpiPath)}`);
+  }
 }
 
 fs.mkdirSync(DIST, { recursive: true });

@@ -81,7 +81,13 @@
             <p>Lock every short-form site for a while.</p>
           </div>
           <div class="chips" id="lockChips" role="radiogroup" aria-label="Lock length"></div>
-          <button type="button" class="btn primary block" id="lockBtn">Lock</button>
+          <div class="lock-row">
+            <div class="custom" id="customFields" hidden>
+              <label class="unit-field"><input id="customH" type="text" inputmode="numeric" maxlength="3" autocomplete="off" aria-label="Hours" /><span aria-hidden="true">h</span></label>
+              <label class="unit-field"><input id="customM" type="text" inputmode="numeric" maxlength="2" autocomplete="off" aria-label="Minutes" /><span aria-hidden="true">m</span></label>
+            </div>
+            <button type="button" class="btn primary" id="lockBtn">Lock</button>
+          </div>
         </article>
 
         <article class="card lock-card" id="lockCard" hidden>
@@ -115,7 +121,7 @@
             <button type="button" id="limitDown" aria-label="Lower the daily limit">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" /></svg>
             </button>
-            <output id="limitValue" aria-live="polite"></output>
+            <input id="limitValue" type="text" inputmode="numeric" maxlength="3" autocomplete="off" aria-label="Daily limit, scrolls per day" title="Click to type your own number" />
             <button type="button" id="limitUp" aria-label="Raise the daily limit">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12" /></svg>
             </button>
@@ -208,7 +214,7 @@
           <label class="row">
             <span class="row-text">
               <span class="row-title">Counter on page</span>
-              <span class="row-desc">Show a small scroll counter while you watch</span>
+              <span class="row-desc">Pops up in the corner with your count each time you swipe</span>
             </span>
             <input type="checkbox" class="switch" role="switch" id="hudOn" />
           </label>

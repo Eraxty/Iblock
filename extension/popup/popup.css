@@ -152,7 +152,7 @@ svg {
 .ring-num,
 .countdown,
 .stat-value,
-.stepper output,
+.stepper input,
 .app-n,
 .app-count,
 .col-val {
@@ -592,6 +592,7 @@ main {
 
 .chip {
   height: 36px;
+  padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   background: transparent;
@@ -610,6 +611,54 @@ main {
   background: var(--surface-2);
   color: var(--text);
   box-shadow: inset 0 0 0 0.5px var(--text);
+}
+
+.lock-row {
+  display: flex;
+  gap: 8px;
+}
+
+.lock-row .btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.custom {
+  display: flex;
+  gap: 8px;
+}
+
+.unit-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 64px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  cursor: text;
+  transition: border-color 0.15s ease-out;
+}
+
+.unit-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 650;
+  text-align: right;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.unit-field span {
+  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 /* ---------- lock card ---------- */
@@ -734,12 +783,22 @@ main {
   stroke-linecap: round;
 }
 
-.stepper output {
-  min-width: 36px;
+.stepper:focus-within,
+.unit-field:focus-within {
+  border-color: var(--text);
+}
+
+.stepper input {
+  width: 40px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
   font-size: 15px;
   font-weight: 650;
   text-align: center;
   letter-spacing: -0.02em;
+  cursor: text;
 }
 
 /* ---------- insights ---------- */
