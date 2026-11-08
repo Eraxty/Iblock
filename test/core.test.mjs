@@ -25,6 +25,7 @@ function fakeBrowser() {
   const event = (list) => ({ addListener: (fn) => list.push(fn), removeListener: () => {} });
   const badge = { text: '', title: '', color: '' };
   const closed = [];
+  const notes = [];
   const clone = (v) => (v === undefined ? undefined : structuredClone(v));
   const chrome = {
     runtime: {
@@ -53,16 +54,21 @@ function fakeBrowser() {
       },
       onChanged: event(hooks.changed),
     },
-    alarms: { create: async () => {}, onAlarm: event(hooks.alarm) },
+    alarms: { create: async () => {}, get: async () => undefined, onAlarm: event(hooks.alarm) },
+    notifications: {
+      create: async (id, options) => void notes.push(options),
+      clear: async () => {},
+      onClicked: event([]),
+    },
     action: {
       setBadgeText: async ({ text }) => void (badge.text = text),
       setBadgeBackgroundColor: async ({ color }) => void (badge.color = color),
       setBadgeTextColor: async () => {},
       setTitle: async ({ title }) => void (badge.title = title),
     },
-    tabs: { remove: async (id) => void closed.push(id), query: async () => [] },
+    tabs: { remove: async (id) => void closed.push(id), query: async () => [], create: async () => {} },
   };
-  const ctx = vm.createContext({ chrome, console, setTimeout, clearTimeout, structuredClone });
+  const ctx = vm.createContext({ chrome, console, setTimeout, clearTimeout, structuredClone, crypto: globalThis.crypto, TextEncoder });
   ctx.importScripts = (file) => vm.runInContext(read(file), ctx, { filename: file });
   vm.runInContext(read('background.js'), ctx, { filename: 'background.js' });
 
@@ -73,7 +79,7 @@ function fakeBrowser() {
       if (handled !== true) resolve(undefined);
     });
   const settle = () => new Promise((r) => setTimeout(r, 120));
-  return { store, send, badge, closed, settle, I: ctx.Iblock };
+  return { store, send, badge, closed, notes, settle, I: ctx.Iblock };
 }
 
 /* ---------------- rules ---------------- */
@@ -206,6 +212,127 @@ describe('settings', () => {
   });
 });
 
+describe('new limits', () => {
+  const I = loadShared();
+  const make = (settings, day = {}) => {
+    const stats = I.normalizeStats({ since: at(0, 0, -30) });
+    stats.days[I.dayKey(at(12))] = { ...I.emptyDay(), ...day };
+    return { settings: I.normalizeSettings(settings), stats, lock: null, guard: null };
+  };
+
+  test('time limit blocks once today\'s watching reaches it', () => {
+    assert.equal(I.status(make({ limit: null, minutes: 20 }, { t: 20 * 60 - 1 }), at(12)).reason, null);
+    const st = I.status(make({ limit: null, minutes: 20 }, { t: 20 * 60 }), at(12));
+    assert.equal(st.reason, 'time');
+    assert.equal(st.until, at(0, 0, 1));
+    assert.equal(I.status(make({ limit: 5, minutes: 20 }, { n: 5, t: 9999 }), at(12)).reason, 'limit', 'scroll limit wins');
+  });
+
+  test('bonus scrolls widen today\'s allowance once', () => {
+    const before = I.status(make({ limit: 10 }, { n: 10 }), at(12));
+    assert.equal(before.reason, 'limit');
+    assert.equal(before.canBonus, true);
+    const after = I.status(make({ limit: 10 }, { n: 10, bonus: 3 }), at(12));
+    assert.equal(after.reason, null);
+    assert.equal(after.allowance, 13);
+    assert.equal(after.left, 3);
+    assert.equal(I.status(make({ limit: 10 }, { n: 13, bonus: 3 }), at(12)).canBonus, false, 'only once a day');
+    assert.equal(I.status(make({ limit: 10, strict: true }, { n: 10 }), at(12)).canBonus, false, 'not in strict mode');
+  });
+
+  test('time limit steps and validation', () => {
+    assert.equal(I.stepMinutes(null, -1), 180);
+    assert.equal(I.stepMinutes(180, 1), null);
+    assert.equal(I.stepMinutes(5, -1), 5);
+    assert.equal(I.stepMinutes(25, 1), 30);
+    const base = I.normalizeSettings({});
+    assert.throws(() => I.applySettingsPatch(base, { minutes: 0 }, false), { code: 'invalid' });
+    assert.equal(I.applySettingsPatch(base, { minutes: 45 }, false).minutes, 45);
+  });
+
+  test('loosens() catches every way of making short-form easier to reach', () => {
+    const tight = I.normalizeSettings({ limit: 10, minutes: 30, gray: true, noAutoplay: true, ytPlayer: true, ytFeed: true, strict: true, bedtime: { on: true } });
+    const loose = (patch) => I.loosens(tight, I.normalizeSettings({ ...tight, ...patch }));
+    for (const patch of [
+      { limit: 11 },
+      { minutes: null },
+      { minutes: 31 },
+      { pause: false },
+      { gray: false },
+      { noAutoplay: false },
+      { ytPlayer: false },
+      { ytFeed: false },
+      { hide: false },
+      { strict: false },
+      { sites: { ...tight.sites, reddit: false, youtube: false } },
+      { bedtime: { ...tight.bedtime, on: false } },
+    ]) {
+      assert.equal(loose(patch), true, JSON.stringify(patch));
+    }
+    for (const patch of [{ limit: 5 }, { minutes: 10 }, { theme: 'dark' }, { hud: false }, { notify: false }, { badge: false }, { sites: { ...tight.sites, x: true } }]) {
+      assert.equal(loose(patch), false, JSON.stringify(patch));
+    }
+  });
+
+  test('feeds are off by default, short-form on', () => {
+    const s = I.normalizeSettings(null);
+    assert.deepEqual(
+      I.PLATFORMS.map((p) => [p.id, s.sites[p.id]]),
+      I.PLATFORMS.map((p) => [p.id, p.kind === 'short']),
+    );
+    assert.equal(I.platformForHost('mobile.twitter.com').id, 'x');
+    assert.equal(I.platformForHost('old.reddit.com').id, 'reddit');
+    assert.equal(I.platformForHost('notreddit.com'), null);
+  });
+});
+
+describe('insights helpers', () => {
+  const I = loadShared();
+
+  test('week summary compares with the week before, when it can', () => {
+    const days = {};
+    for (let i = 0; i < 7; i++) days[I.dayKey(at(12, 0, -i))] = { n: 2, t: 60 };
+    for (let i = 7; i < 14; i++) days[I.dayKey(at(12, 0, -i))] = { n: 4 };
+    const old = I.normalizeStats({ since: at(0, 0, -30), days });
+    const w = I.weekSummary(old, at(12));
+    assert.equal(w.thisWeek.n, 14);
+    assert.equal(w.thisWeek.t, 420);
+    assert.equal(w.lastWeek.n, 28);
+    assert.equal(w.pct, -50);
+    assert.equal(I.weekSummary(I.normalizeStats({ since: at(0, 0, -3), days }), at(12)).pct, null, 'not tracked last week');
+  });
+
+  test('scrolls add up by hour', () => {
+    const stats = I.normalizeStats({
+      days: { [I.dayKey(at(12))]: { h: { 23: 4, 9: 1 } }, [I.dayKey(at(12, 0, -1))]: { h: { 23: 2, x: 9 } } },
+    });
+    const hours = I.hourTotals(stats, at(12));
+    assert.equal(hours.length, 24);
+    assert.equal(hours[23], 6);
+    assert.equal(hours[9], 1);
+    assert.equal(hours.reduce((a, b) => a + b, 0), 7);
+  });
+
+  test('weekly report goes out Sunday evening', () => {
+    // 2026-03-10 is a Tuesday.
+    assert.equal(new Date(I.nextWeeklyReport(at(12))).getDay(), 0);
+    assert.equal(I.nextWeeklyReport(at(12)), new Date(2026, 2, 15, 19).getTime());
+    assert.equal(I.nextWeeklyReport(new Date(2026, 2, 15, 19, 0, 1).getTime()), new Date(2026, 2, 22, 19).getTime());
+  });
+
+  test('badges from streaks, blocked shorts and zero days', () => {
+    const stats = I.normalizeStats({ since: at(9, 0, -8), life: { b: 120 } });
+    for (let i = 1; i <= 8; i++) stats.days[I.dayKey(at(12, 0, -i))] = { n: 3, t: 100 };
+    assert.deepEqual([...I.pendingBadges(stats, at(12))].sort(), ['blocked100', 'streak3', 'streak7']);
+    stats.days[I.dayKey(at(12, 0, -2))] = { n: 0, t: 0 };
+    assert.ok(I.pendingBadges(stats, at(12)).includes('zeroDay'));
+    stats.badges.streak3 = 1;
+    assert.ok(!I.pendingBadges(stats, at(12)).includes('streak3'), 'never awarded twice');
+    const fresh = I.normalizeStats({ since: at(9) });
+    assert.deepEqual([...I.pendingBadges(fresh, at(12))], [], 'the install day is not a zero day');
+  });
+});
+
 describe('stats helpers', () => {
   const I = loadShared();
 
@@ -256,12 +383,12 @@ describe('formatting', () => {
     assert.equal(I.fmtLeft(90 * MIN), '1h 30m');
     assert.equal(I.fmtLeft(2 * HOUR), '2h');
     assert.equal(I.fmtLeft(20_000), '1m');
-    assert.equal(I.fmtLockLength(30), '30 minutes');
-    assert.equal(I.fmtLockLength(60), '1 hour');
-    assert.equal(I.fmtLockLength(300), '5 hours');
-    assert.equal(I.fmtLockLength(1440), '24 hours');
-    assert.equal(I.fmtLockLength(150), '2h 30m');
-    assert.equal(I.fmtLockLength(1), '1 minute');
+    assert.equal(I.fmtLength(30), '30 minutes');
+    assert.equal(I.fmtLength(60), '1 hour');
+    assert.equal(I.fmtLength(300), '5 hours');
+    assert.equal(I.fmtLength(1440), '24 hours');
+    assert.equal(I.fmtLength(150), '2h 30m');
+    assert.equal(I.fmtLength(1), '1 minute');
     assert.equal(I.fmtLockChip(1440), '24h');
     assert.equal(I.plural(1, 'scroll', 'scrolls'), '1 scroll');
     assert.equal(I.plural(2, 'scroll', 'scrolls'), '2 scrolls');
@@ -376,6 +503,62 @@ describe('background', () => {
     const day = store.stats.days[I.dayKey()];
     assert.equal(day.b, 1);
     assert.equal(day.over, false, 'a lock is not a broken streak');
+  });
+
+  test('counts land in the right hour', async () => {
+    const { send, store, I } = fakeBrowser();
+    await send({ type: 'count', platform: 'youtube' });
+    assert.equal(store.stats.days[I.dayKey()].h[String(new Date().getHours())], 1);
+  });
+
+  test('bonus: once a day, only at the limit', async () => {
+    const { send, store, I } = fakeBrowser();
+    await send({ type: 'settings', patch: { limit: 2 } });
+    assert.equal((await send({ type: 'bonus' })).error, 'invalid', 'not before the limit');
+    await send({ type: 'count', platform: 'youtube' });
+    await send({ type: 'count', platform: 'youtube' });
+    assert.equal((await send({ type: 'count', platform: 'youtube' })).allowed, false);
+    assert.equal((await send({ type: 'bonus' })).ok, true);
+    assert.equal(store.stats.days[I.dayKey()].bonus, I.BONUS_SCROLLS);
+    for (let i = 0; i < I.BONUS_SCROLLS; i++) assert.equal((await send({ type: 'count', platform: 'youtube' })).allowed, true);
+    assert.equal((await send({ type: 'count', platform: 'youtube' })).allowed, false);
+    assert.equal((await send({ type: 'bonus' })).error, 'invalid', 'only once');
+  });
+
+  test('password lock guards loosening, not tightening', async () => {
+    const { send, store } = fakeBrowser();
+    assert.equal((await send({ type: 'password', password: 'abc' })).error, 'invalid', 'too short');
+    assert.equal((await send({ type: 'password', password: 'tulip42' })).ok, true);
+    assert.ok(store.guard.hash && store.guard.salt);
+    assert.ok(!JSON.stringify(store).includes('tulip42'), 'never stored in plain text');
+
+    assert.equal((await send({ type: 'settings', patch: { limit: 5 } })).ok, true, 'tightening needs nothing');
+    assert.equal((await send({ type: 'settings', patch: { theme: 'dark' } })).ok, true);
+    assert.equal((await send({ type: 'settings', patch: { limit: 50 } })).error, 'password');
+    assert.equal((await send({ type: 'settings', patch: { limit: 50 }, password: 'nope' })).error, 'wrong-password');
+    assert.equal((await send({ type: 'settings', patch: { limit: 50 }, password: 'tulip42' })).ok, true);
+
+    await send({ type: 'lock', minutes: 60 });
+    assert.equal((await send({ type: 'unlock' })).error, 'password');
+    assert.equal((await send({ type: 'reset' })).error, 'password');
+    assert.equal((await send({ type: 'password', password: 'other', current: 'nope' })).error, 'wrong-password');
+    assert.equal((await send({ type: 'unlock', password: 'tulip42' })).ok, true);
+    assert.equal(store.lock, null);
+
+    assert.equal((await send({ type: 'password', password: '', current: 'tulip42' })).ok, true);
+    assert.equal(store.guard, null);
+    assert.equal((await send({ type: 'settings', patch: { limit: 100 } })).ok, true, 'no password, no prompt');
+  });
+
+  test('badges: first lock right away, and a notification', async () => {
+    const { send, store, notes, settle } = fakeBrowser();
+    await send({ type: 'lock', minutes: 30 });
+    assert.ok(store.stats.badges.firstLock);
+    await settle();
+    assert.match(notes.at(-1).title, /First break/);
+    await send({ type: 'unlock' });
+    await send({ type: 'lock', minutes: 30 });
+    assert.equal(notes.filter((n) => /First break/.test(n.title)).length, 1, 'only once');
   });
 
   test('closeTab closes the sender tab', async () => {

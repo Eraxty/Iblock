@@ -1,3 +1,5 @@
+/* Iblock UI: shared by the popup (also embedded in the lock screen) and the welcome page. */
+
 @font-face {
   font-family: 'Geist';
   src: url('../assets/fonts/geist.woff2') format('woff2');
@@ -97,20 +99,37 @@ body {
 }
 
 body {
-  display: flex;
-  flex-direction: column;
-  width: 360px;
-  height: 600px;
-  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font: 400 14px/1.45 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
+body.popup {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  height: 600px;
+  overflow: hidden;
+}
+
+/* Inside the lock screen the frame sets the width, which can be under 360px on phones. */
+:root.embedded body.popup {
+  width: auto;
+}
+
+/* Opened in a tab (from a notification): float the panel in the middle. */
+@media (min-width: 420px) and (pointer: fine) {
+  body.popup {
+    margin: 40px auto;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+  }
+}
+
 /* Firefox for Android opens the popup as a full page. */
 @media (pointer: coarse) and (min-width: 420px) {
-  body {
+  body.popup {
     width: auto;
     height: 100vh;
     max-width: 480px;
@@ -1066,6 +1085,12 @@ main {
   margin-top: 4px;
 }
 
+.group-note {
+  margin: -4px 4px 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
 .strict-banner {
   margin-bottom: 12px;
   padding: 10px 12px;
@@ -1225,6 +1250,166 @@ label.row:has(.switch:disabled) {
 
 #view-settings .foot {
   margin-top: 16px;
+}
+
+/* ---------- hour chart ---------- */
+
+.hours {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  align-items: end;
+  gap: 2px;
+  height: 64px;
+  margin-top: 16px;
+}
+
+.hours span {
+  min-height: 2px;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--bar);
+  transition: height 0.5s var(--ease);
+}
+
+.hours span.peak {
+  background: var(--accent);
+}
+
+.hour-labels {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/* ---------- badges ---------- */
+
+.badges {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.badge-item {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px 4px 10px;
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.badge-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-3);
+}
+
+.badge-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.badge-name {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.badge-item.earned .badge-icon {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.badge-item.earned .badge-name {
+  color: var(--text);
+}
+
+/* ---------- password dialog ---------- */
+
+.row-buttons {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal-card {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+  padding: 20px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.25);
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.modal-text {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.field {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.field:focus {
+  border-color: var(--text);
+  outline: none;
+}
+
+.field-error {
+  min-height: 16px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.bonus-btn {
+  margin-top: 14px;
 }
 
 /* ---------- toast ---------- */

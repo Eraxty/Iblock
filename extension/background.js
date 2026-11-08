@@ -1,7 +1,8 @@
 /*
- * Iblock background. The single writer of stats, lock and settings: every
- * change goes through one serial queue so scrolls counted from many tabs at
- * once can never overwrite each other. It also keeps the toolbar badge fresh.
+ * Iblock background. The single writer of stats, lock, settings and the
+ * password: every change goes through one serial queue so scrolls counted
+ * from many tabs at once can never overwrite each other. It also keeps the
+ * toolbar badge fresh, hands out badges and sends the weekly report.
  *
  * Chrome runs this as a service worker (shared.js comes in via importScripts);
  * Firefox runs it as an event page with shared.js listed before it.
@@ -9,10 +10,12 @@
 if (typeof importScripts === 'function' && !globalThis.Iblock) importScripts('shared.js');
 
 const { ext } = Iblock;
-const KEYS = ['settings', 'stats', 'lock'];
-const ALARM = 'iblock-boundary';
+const KEYS = ['settings', 'stats', 'lock', 'guard'];
+const BOUNDARY_ALARM = 'iblock-boundary';
+const WEEKLY_ALARM = 'iblock-weekly';
 const BADGE_IDLE = '#3A3A3D';
 const BADGE_BLOCKED = '#E8521C';
+const LOCK_DONE_MIN = 60; // shortest lock that earns "Saw it through"
 
 let queue = Promise.resolve();
 function serial(task) {
@@ -41,6 +44,59 @@ function recordBlock(stats, day, reason) {
   if (reason === 'limit' || reason === 'off') day.over = true;
 }
 
+/* ---------- password lock ---------- */
+
+const encoder = new TextEncoder();
+const toHex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+async function hashPassword(password, salt) {
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: encoder.encode(salt), iterations: 200_000 },
+    key,
+    256,
+  );
+  return toHex(bits);
+}
+
+// Throws unless there's no password lock, or `password` opens it.
+async function requirePassword(state, password) {
+  if (!state.guard) return;
+  if (typeof password !== 'string' || !password) throw Iblock.refusal('password');
+  if ((await hashPassword(password, state.guard.salt)) !== state.guard.hash) throw Iblock.refusal('wrong-password');
+}
+
+/* ---------- badges & notifications ---------- */
+
+function notify(title, message) {
+  if (!ext.notifications) return;
+  Promise.resolve(
+    ext.notifications.create(`iblock-${Date.now()}-${Math.random().toString(36).slice(2)}`, {
+      type: 'basic',
+      iconUrl: ext.runtime.getURL('assets/icons/icon-128.png'),
+      title,
+      message,
+    }),
+  ).catch(() => {});
+}
+
+// Marks badges as earned; returns the ones that are new. Caller saves stats.
+function award(state, ids, now) {
+  const fresh = ids.filter((id) => !state.stats.badges[id]);
+  for (const id of fresh) state.stats.badges[id] = now;
+  return fresh;
+}
+
+function celebrate(state, ids) {
+  if (!state.settings.notify) return;
+  for (const id of ids) {
+    const badge = Iblock.BADGES.find((b) => b.id === id);
+    if (badge) notify(`Badge unlocked: ${badge.title}`, badge.desc);
+  }
+}
+
+/* ---------- messages ---------- */
+
 const handlers = {
   // A new short appeared on screen. Either it fits in today's allowance (and
   // is counted) or it doesn't, in which case it is recorded as blocked.
@@ -53,11 +109,14 @@ const handlers = {
     const day = Iblock.touchDay(state.stats, now);
     if (st.reason) {
       recordBlock(state.stats, day, st.reason);
+      const fresh = award(state, Iblock.pendingBadges(state.stats, now), now);
       await saveStats(state);
+      celebrate(state, fresh);
       return { allowed: false, reason: st.reason };
     }
     day.n += 1;
     bump(day.p, platform);
+    bump(day.h, String(new Date(now).getHours()));
     state.stats.life.n += 1;
     bump(state.stats.life.p, platform);
     await saveStats(state);
@@ -74,7 +133,9 @@ const handlers = {
     const st = Iblock.status(state, now);
     if (!st.reason) return { ok: true, stale: true };
     recordBlock(state.stats, Iblock.touchDay(state.stats, now), st.reason);
+    const fresh = award(state, Iblock.pendingBadges(state.stats, now), now);
     await saveStats(state);
+    celebrate(state, fresh);
     return { ok: true };
   },
 
@@ -106,28 +167,61 @@ const handlers = {
       start: running ? running.start : now,
       until: Math.min(cap, Math.max(target, running ? running.until : 0)),
     };
-    await ext.storage.local.set({ lock });
+    const fresh = award(state, ['firstLock'], now);
+    await ext.storage.local.set(fresh.length ? { lock, stats: state.stats } : { lock });
+    celebrate(state, fresh);
     return { ok: true, lock };
   },
 
-  async unlock() {
+  async unlock({ password }) {
     const state = await load();
-    const running = state.lock && state.lock.until > Date.now();
-    if (running && state.settings.strict) throw Iblock.refusal('strict');
+    if (state.lock && state.lock.until > Date.now()) {
+      if (state.settings.strict) throw Iblock.refusal('strict');
+      await requirePassword(state, password);
+    }
     await ext.storage.local.set({ lock: null });
     return { ok: true };
   },
 
-  async settings({ patch }) {
+  async settings({ patch, password }) {
     const state = await load();
     const next = Iblock.applySettingsPatch(state.settings, patch, Iblock.status(state).frozen);
+    if (Iblock.loosens(state.settings, next)) await requirePassword(state, password);
     await ext.storage.local.set({ settings: next });
     return { ok: true, settings: next };
   },
 
-  async reset() {
+  // Once a day, after hitting the limit, a few more scrolls.
+  async bonus({ password }) {
+    const state = await load();
+    const now = Date.now();
+    const st = Iblock.status(state, now);
+    if (st.frozen) throw Iblock.refusal('strict');
+    if (!st.canBonus) throw Iblock.refusal('invalid');
+    await requirePassword(state, password);
+    Iblock.touchDay(state.stats, now).bonus = Iblock.BONUS_SCROLLS;
+    await saveStats(state);
+    return { ok: true };
+  },
+
+  // Set, change or (with an empty `password`) remove the password lock.
+  async password({ password, current }) {
+    const state = await load();
+    await requirePassword(state, current);
+    if (password === '') {
+      await ext.storage.local.set({ guard: null });
+      return { ok: true, locked: false };
+    }
+    if (typeof password !== 'string' || password.length < 4 || password.length > 200) throw Iblock.refusal('invalid');
+    const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
+    await ext.storage.local.set({ guard: { salt, hash: await hashPassword(password, salt) } });
+    return { ok: true, locked: true };
+  },
+
+  async reset({ password }) {
     const state = await load();
     if (Iblock.status(state).frozen) throw Iblock.refusal('strict');
+    await requirePassword(state, password);
     await ext.storage.local.set({ stats: Iblock.normalizeStats({ since: Date.now() }) });
     return { ok: true };
   },
@@ -150,7 +244,7 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-/* ---------- badge ---------- */
+/* ---------- badge, boundaries, weekly report ---------- */
 
 function badgeTitle(st, now) {
   switch (st.reason) {
@@ -162,16 +256,33 @@ function badgeTitle(st, now) {
       return 'Iblock: short-form is blocked';
     case 'limit':
       return `Iblock: daily limit reached (${st.today.n} scrolls)`;
+    case 'time':
+      return `Iblock: daily time limit reached (${Iblock.fmtDuration(st.today.t)})`;
     default:
-      return st.limit === null
+      return st.allowance === null
         ? `Iblock: ${Iblock.plural(st.today.n, 'scroll', 'scrolls')} today`
-        : `Iblock: ${st.today.n} of ${st.limit} scrolls today`;
+        : `Iblock: ${st.today.n} of ${st.allowance} scrolls today`;
   }
 }
 
 async function refresh() {
   const state = await load();
   const now = Date.now();
+
+  // A lock that ran out by itself was seen through.
+  if (state.lock && state.lock.until <= now) {
+    const long = state.lock.until - state.lock.start >= LOCK_DONE_MIN * 60_000;
+    const fresh = long ? award(state, ['lockDone'], now) : [];
+    state.lock = null;
+    await ext.storage.local.set({ lock: null, stats: state.stats });
+    celebrate(state, fresh);
+  }
+  const earned = award(state, Iblock.pendingBadges(state.stats, now), now);
+  if (earned.length) {
+    await saveStats(state);
+    celebrate(state, earned);
+  }
+
   const st = Iblock.status(state, now);
   const n = st.today.n;
   const action = ext.action;
@@ -181,8 +292,27 @@ async function refresh() {
     action.setBadgeTextColor?.({ color: '#FFFFFF' }),
     action.setTitle({ title: badgeTitle(st, now) }),
   ]);
-  // Wake up again when the badge would change on its own (midnight, lock end, bedtime).
-  await ext.alarms.create(ALARM, { when: Math.max(now + 1000, Iblock.nextBoundary(state, now) + 500) });
+  // Wake up again when things change on their own (midnight, lock end, bedtime).
+  await ext.alarms.create(BOUNDARY_ALARM, { when: Math.max(now + 1000, Iblock.nextBoundary(state, now) + 500) });
+  if (!(await ext.alarms.get(WEEKLY_ALARM))) await ext.alarms.create(WEEKLY_ALARM, { when: Iblock.nextWeeklyReport(now) });
+}
+
+async function weeklyReport() {
+  const state = await load();
+  const now = Date.now();
+  const today = Iblock.dayKey(now);
+  if (state.settings.notify && state.stats.reported !== today) {
+    const { thisWeek, pct } = Iblock.weekSummary(state.stats, now);
+    const trend =
+      pct === null ? '' : pct < 0 ? ` That's ${-pct}% less than last week.` : pct > 0 ? ` That's ${pct}% more than last week.` : ' Same as last week.';
+    notify(
+      'Your week with Iblock',
+      `${Iblock.plural(thisWeek.n, 'short', 'shorts')} and ${Iblock.fmtDuration(thisWeek.t)} on short-form in the last 7 days.${trend}`,
+    );
+    state.stats.reported = today;
+    await saveStats(state);
+  }
+  await ext.alarms.create(WEEKLY_ALARM, { when: Iblock.nextWeeklyReport(now) });
 }
 
 let refreshTimer = 0;
@@ -195,9 +325,14 @@ ext.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && KEYS.some((k) => k in changes)) scheduleRefresh();
 });
 ext.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM) scheduleRefresh();
+  if (alarm.name === BOUNDARY_ALARM) scheduleRefresh();
+  if (alarm.name === WEEKLY_ALARM) serial(weeklyReport).catch(() => {});
 });
 ext.runtime.onStartup.addListener(scheduleRefresh);
+ext.notifications?.onClicked.addListener((id) => {
+  ext.tabs.create({ url: ext.runtime.getURL('popup/popup.html#insights') });
+  ext.notifications.clear(id);
+});
 
 /* ---------- install ---------- */
 
@@ -213,7 +348,7 @@ async function injectIntoOpenTabs() {
   );
 }
 
-ext.runtime.onInstalled.addListener(() => {
+ext.runtime.onInstalled.addListener(({ reason }) => {
   serial(async () => {
     // Re-save normalised data so the stored shape is always current.
     const state = await load();
@@ -221,4 +356,5 @@ ext.runtime.onInstalled.addListener(() => {
     await refresh();
   }).catch(() => {});
   injectIntoOpenTabs().catch(() => {});
+  if (reason === 'install') ext.tabs.create({ url: ext.runtime.getURL('welcome/welcome.html') });
 });

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Iblock: Shorts & Reels Blocker",
   "short_name": "Iblock",
-  "version": "1.0.1",
-  "description": "Count, limit and lock YouTube Shorts, Instagram Reels, TikTok, Snapchat Spotlight and Facebook Reels.",
+  "version": "1.1.0",
+  "description": "Count, limit and lock YouTube Shorts, Instagram Reels, TikTok, Snapchat Spotlight, Facebook Reels and endless feeds.",
   "minimum_chrome_version": "110",
   "icons": {
     "16": "assets/icons/icon-16.png",
@@ -28,13 +28,17 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "alarms", "scripting"],
+  "permissions": ["storage", "alarms", "scripting", "notifications"],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.instagram.com/*",
     "*://*.tiktok.com/*",
     "*://*.snapchat.com/*",
-    "*://*.facebook.com/*"
+    "*://*.facebook.com/*",
+    "*://*.x.com/*",
+    "*://*.twitter.com/*",
+    "*://*.reddit.com/*",
+    "*://*.pinterest.com/*"
   ],
   "content_scripts": [
     {
@@ -43,10 +47,30 @@
         "*://*.instagram.com/*",
         "*://*.tiktok.com/*",
         "*://*.snapchat.com/*",
-        "*://*.facebook.com/*"
+        "*://*.facebook.com/*",
+        "*://*.x.com/*",
+        "*://*.twitter.com/*",
+        "*://*.reddit.com/*",
+        "*://*.pinterest.com/*"
       ],
       "js": ["shared.js", "content.js"],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["popup/popup.html"],
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.instagram.com/*",
+        "*://*.tiktok.com/*",
+        "*://*.snapchat.com/*",
+        "*://*.facebook.com/*",
+        "*://*.x.com/*",
+        "*://*.twitter.com/*",
+        "*://*.reddit.com/*",
+        "*://*.pinterest.com/*"
+      ]
     }
   ]
 }

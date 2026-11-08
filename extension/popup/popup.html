@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Iblock</title>
     <script src="theme-init.js"></script>
-    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="../ui/app.css" />
   </head>
-  <body>
+  <body class="popup">
     <header class="bar">
       <div class="bar-start">
         <button type="button" class="icon-btn" id="backBtn" aria-label="Back" hidden>
@@ -90,6 +90,14 @@
           </div>
         </article>
 
+        <article class="card" id="bonusCard" hidden>
+          <div class="card-head">
+            <h3>Need a few more?</h3>
+            <p>Once a day, you can take a few extra scrolls.</p>
+          </div>
+          <button type="button" class="btn hold block bonus-btn" id="bonusBtn"><span class="fill"></span><span class="label">Hold for 3 more</span></button>
+        </article>
+
         <article class="card lock-card" id="lockCard" hidden>
           <div class="lock-top">
             <div>
@@ -160,6 +168,15 @@
           </div>
         </article>
 
+        <article class="card">
+          <div class="card-head split">
+            <h3>When you scroll</h3>
+            <span class="muted" id="peakHour"></span>
+          </div>
+          <div class="hours" id="hours" role="img"></div>
+          <div class="hour-labels" id="hourLabels" aria-hidden="true"></div>
+        </article>
+
         <article class="card saved">
           <span class="saved-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M12 21s7-3.5 7-9.5V5.5L12 3 5 5.5v6C5 17.5 12 21 12 21z" /><path d="m9 12 2 2 4-4" /></svg>
@@ -168,6 +185,14 @@
             <p class="saved-title" id="savedTitle"></p>
             <p class="saved-sub" id="savedSub"></p>
           </div>
+        </article>
+
+        <article class="card">
+          <div class="card-head split">
+            <h3>Badges</h3>
+            <span class="muted" id="badgeCount"></span>
+          </div>
+          <ul class="badges" id="badges"></ul>
         </article>
 
         <article class="card">
@@ -184,8 +209,70 @@
       <section id="view-settings" hidden>
         <p class="strict-banner" id="strictBanner" hidden></p>
 
-        <h2 class="group">Sites</h2>
+        <h2 class="group">Short-form</h2>
         <div class="card list" id="siteList"></div>
+
+        <h2 class="group">Feeds</h2>
+        <p class="group-note">Locked whenever short-form is, and their time counts toward your time limit.</p>
+        <div class="card list" id="feedList"></div>
+
+        <h2 class="group">Limits</h2>
+        <div class="card list">
+          <div class="row">
+            <span class="row-text">
+              <span class="row-title">Daily time limit</span>
+              <span class="row-desc" id="minutesDesc"></span>
+            </span>
+            <div class="stepper">
+              <button type="button" id="minutesDown" aria-label="Lower the time limit">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" /></svg>
+              </button>
+              <input id="minutesValue" type="text" inputmode="numeric" maxlength="4" autocomplete="off" aria-label="Daily time limit in minutes" title="Click to type your own number of minutes" />
+              <button type="button" id="minutesUp" aria-label="Raise the time limit">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="group">Friction</h2>
+        <div class="card list">
+          <label class="row">
+            <span class="row-text">
+              <span class="row-title">Pause before opening</span>
+              <span class="row-desc">A 5-second breather before short-form or a feed opens</span>
+            </span>
+            <input type="checkbox" class="switch" role="switch" data-setting="pause" />
+          </label>
+          <label class="row">
+            <span class="row-text">
+              <span class="row-title">Grayscale</span>
+              <span class="row-desc">Drain the color from videos and images</span>
+            </span>
+            <input type="checkbox" class="switch" role="switch" data-setting="gray" />
+          </label>
+          <label class="row">
+            <span class="row-text">
+              <span class="row-title">No autoplay</span>
+              <span class="row-desc">Each short waits for you to click play</span>
+            </span>
+            <input type="checkbox" class="switch" role="switch" data-setting="noAutoplay" />
+          </label>
+          <label class="row">
+            <span class="row-text">
+              <span class="row-title">Shorts in the normal player</span>
+              <span class="row-desc">Open YouTube Shorts as regular videos, with no swipe feed</span>
+            </span>
+            <input type="checkbox" class="switch" role="switch" data-setting="ytPlayer" />
+          </label>
+          <label class="row">
+            <span class="row-text">
+              <span class="row-title">Hide YouTube recommendations</span>
+              <span class="row-desc">No home feed, suggested videos or end screens</span>
+            </span>
+            <input type="checkbox" class="switch" role="switch" data-setting="ytFeed" />
+          </label>
+        </div>
 
         <h2 class="group">Bedtime</h2>
         <div class="card list">
@@ -202,35 +289,56 @@
           </div>
         </div>
 
-        <h2 class="group">Behavior</h2>
+        <h2 class="group">Protection</h2>
         <div class="card list">
           <label class="row">
             <span class="row-text">
               <span class="row-title">Strict mode</span>
-              <span class="row-desc">While locked or over your limit, you can't raise the limit, turn sites off or unlock early.</span>
+              <span class="row-desc">While locked or over a limit, nothing can be loosened and locks can't end early.</span>
             </span>
-            <input type="checkbox" class="switch" role="switch" id="strictOn" />
+            <input type="checkbox" class="switch" role="switch" data-setting="strict" />
           </label>
+          <div class="row">
+            <span class="row-text">
+              <span class="row-title">Password lock</span>
+              <span class="row-desc" id="pwDesc"></span>
+            </span>
+            <div class="row-buttons">
+              <button type="button" class="btn secondary small" id="pwSetBtn">Set</button>
+              <button type="button" class="btn danger small" id="pwRemoveBtn" hidden>Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="group">Behavior</h2>
+        <div class="card list">
           <label class="row">
             <span class="row-text">
               <span class="row-title">Counter on page</span>
               <span class="row-desc">Pops up in the corner with your count each time you swipe</span>
             </span>
-            <input type="checkbox" class="switch" role="switch" id="hudOn" />
+            <input type="checkbox" class="switch" role="switch" data-setting="hud" />
           </label>
           <label class="row">
             <span class="row-text">
               <span class="row-title">Hide Shorts &amp; Reels links</span>
               <span class="row-desc">Remove shelves and tabs while short-form is locked</span>
             </span>
-            <input type="checkbox" class="switch" role="switch" id="hideOn" />
+            <input type="checkbox" class="switch" role="switch" data-setting="hide" />
           </label>
           <label class="row">
             <span class="row-text">
               <span class="row-title">Count on toolbar icon</span>
               <span class="row-desc">Show today's scrolls on the Iblock icon</span>
             </span>
-            <input type="checkbox" class="switch" role="switch" id="badgeOn" />
+            <input type="checkbox" class="switch" role="switch" data-setting="badge" />
+          </label>
+          <label class="row">
+            <span class="row-text">
+              <span class="row-title">Notifications</span>
+              <span class="row-desc">A weekly report on Sundays, and new badges</span>
+            </span>
+            <input type="checkbox" class="switch" role="switch" data-setting="notify" />
           </label>
         </div>
 
@@ -246,7 +354,7 @@
           <div class="row">
             <span class="row-text">
               <span class="row-title">Reset statistics</span>
-              <span class="row-desc">Erase every count, the streak and history</span>
+              <span class="row-desc">Erase every count, the streak, badges and history</span>
             </span>
             <button type="button" class="btn danger small" id="resetBtn">Reset</button>
           </div>
@@ -254,6 +362,20 @@
         <p class="foot" id="version"></p>
       </section>
     </main>
+
+    <div class="modal" id="pwModal" role="dialog" aria-modal="true" aria-labelledby="pwTitle" hidden>
+      <form class="modal-card" id="pwForm" novalidate>
+        <h2 class="modal-title" id="pwTitle"></h2>
+        <p class="modal-text" id="pwText"></p>
+        <input class="field" type="password" id="pwInput" autocomplete="off" maxlength="200" aria-label="Password" />
+        <input class="field" type="password" id="pwConfirm" autocomplete="off" maxlength="200" aria-label="Type the password again" placeholder="Type it again" hidden />
+        <p class="field-error" id="pwError" role="alert"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary" id="pwCancel">Cancel</button>
+          <button type="submit" class="btn primary" id="pwOk"></button>
+        </div>
+      </form>
+    </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

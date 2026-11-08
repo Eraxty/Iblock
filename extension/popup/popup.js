@@ -1,4 +1,8 @@
-/* Iblock popup: today's numbers, quick locks, insights and settings. */
+/*
+ * Iblock popup: today's numbers, quick locks, insights and settings. The same
+ * page also runs inside the lock screen (#embedded) and in a tab (#insights,
+ * from the weekly report notification).
+ */
 (() => {
   'use strict';
 
@@ -10,6 +14,7 @@
   const STRICT_MSG = 'Strict mode is on. You can loosen this once the lock is over.';
   const CUSTOM = 'custom';
   const MAX_LIMIT = 999;
+  const MAX_MINUTES = 1440;
 
   const GLYPHS = {
     youtube:
@@ -22,7 +27,21 @@
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" d="M12 2.6a7.4 7.4 0 0 0-7.4 7.4v11l2.8-2.8 2.3 2.3L12 18.2l2.3 2.3 2.3-2.3 2.8 2.8V10A7.4 7.4 0 0 0 12 2.6z"/></svg>',
     facebook:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.2H7.8v3h2.6V21h3.1z"/></svg>',
+    x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.8 3h3.1l-6.8 7.8L22 21h-6.2l-4.9-6.4L5.3 21H2.2l7.3-8.3L2 3h6.4l4.4 5.8L17.8 3zm-1.1 16.2h1.7L7.4 4.7H5.6l11.1 14.5z"/></svg>',
+    reddit:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="14" rx="8" ry="6"/><path d="M12 8l1.2-4.2 3.6 1"/><path d="M9.3 16.6c1.6 1 3.8 1 5.4 0"/></g><circle cx="18.4" cy="5" r="1.5" fill="currentColor"/><circle cx="9.2" cy="13.2" r="1.2" fill="currentColor"/><circle cx="14.8" cy="13.2" r="1.2" fill="currentColor"/></svg>',
+    pinterest:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10.4 20.6 12.3 12"/><path d="M10.9 13.9c.5.5 1.3.8 2.1.8 2 0 3.4-1.8 3.4-3.9 0-2.4-2-4.1-4.5-4.1-2.7 0-4.5 1.9-4.5 4.2 0 .9.3 1.6.8 2.1"/></g></svg>',
   };
+
+  const BADGE_ICONS = {
+    firstLock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+    lockDone: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/>',
+    zeroDay: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+    streak: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.6-5.3 3.6-8.3.3-.9 1.4-1.1 2-.4 1 1.2 1.4 2.6 1.4 3.9 1-.6 1.6-1.6 1.8-2.6.2-.8 1.2-1 1.7-.3 1.4 1.9 2.5 4.3 2.5 7.6 0 3.7-2.6 6.3-6.5 6.3z"/>',
+    blocked: '<path d="M12 21s7-3.5 7-9.5V5.5L12 3 5 5.5v6C5 17.5 12 21 12 21z"/><path d="m9 12 2 2 4-4"/>',
+  };
+  const badgeIcon = (b) => BADGE_ICONS[b.id] || (b.streak ? BADGE_ICONS.streak : BADGE_ICONS.blocked);
 
   const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
   let state = null;
@@ -41,6 +60,14 @@
       return localStorage.getItem(`iblock:${key}`);
     } catch {
       return null;
+    }
+  }
+
+  function remember(key, value) {
+    try {
+      localStorage.setItem(`iblock:${key}`, String(value));
+    } catch {
+      // Only a convenience; nothing breaks without it.
     }
   }
 
@@ -64,14 +91,6 @@
     return lockChoice === CUSTOM ? customMinutes : lockChoice;
   }
 
-  function remember(key, value) {
-    try {
-      localStorage.setItem(`iblock:${key}`, String(value));
-    } catch {
-      // Only a convenience; nothing breaks without it.
-    }
-  }
-
   function el(tag, className, html) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -89,6 +108,7 @@
   }
 
   function toast(text) {
+    if (!text) return;
     const node = $('toast');
     node.textContent = text;
     node.classList.add('show');
@@ -96,7 +116,12 @@
     toastTimer = setTimeout(() => node.classList.remove('show'), 2600);
   }
 
-  const failure = (res, fallback) => (res?.error === 'strict' ? STRICT_MSG : fallback);
+  // What to tell the user when a request didn't go through ('' to say nothing).
+  function failure(res, fallback) {
+    if (res?.error === 'cancelled') return '';
+    if (res?.error === 'strict') return STRICT_MSG;
+    return fallback;
+  }
 
   // Number fields keep only digits, capped at `max`.
   function digitsOnly(input, max) {
@@ -119,11 +144,117 @@
     });
   }
 
+  /* ---------- password lock ---------- */
+
+  // Resolves with what was typed, or null when cancelled.
+  function passwordDialog({ title, text, action, confirm = false, error = '' }) {
+    return new Promise((resolve) => {
+      const modal = $('pwModal');
+      const form = $('pwForm');
+      const input = $('pwInput');
+      const again = $('pwConfirm');
+      $('pwTitle').textContent = title;
+      $('pwText').textContent = text;
+      $('pwOk').textContent = action;
+      $('pwError').textContent = error;
+      input.value = '';
+      again.value = '';
+      again.hidden = !confirm;
+      input.placeholder = confirm ? 'New password, 4+ characters' : 'Password';
+      modal.hidden = false;
+      input.focus();
+
+      const done = (value) => {
+        modal.hidden = true;
+        form.removeEventListener('submit', onSubmit);
+        $('pwCancel').removeEventListener('click', onCancel);
+        modal.removeEventListener('keydown', onKey);
+        resolve(value);
+      };
+      const onSubmit = (e) => {
+        e.preventDefault();
+        const value = input.value;
+        let problem = '';
+        if (!value) problem = 'Type the password.';
+        else if (confirm && value.length < 4) problem = 'Use at least 4 characters.';
+        else if (confirm && value !== again.value) problem = "The two don't match.";
+        if (problem) {
+          $('pwError').textContent = problem;
+          return;
+        }
+        done(value);
+      };
+      const onCancel = () => done(null);
+      const onKey = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          done(null);
+        }
+      };
+      form.addEventListener('submit', onSubmit);
+      $('pwCancel').addEventListener('click', onCancel);
+      modal.addEventListener('keydown', onKey);
+    });
+  }
+
+  // Sends a message; when the password lock wants the password, asks for it
+  // and tries again.
+  async function guarded(message, what) {
+    let res = await I.send(message);
+    while (res?.error === 'password' || res?.error === 'wrong-password') {
+      const password = await passwordDialog({
+        title: 'Password needed',
+        text: `Iblock is password locked. Enter the password to ${what}.`,
+        action: 'Continue',
+        error: res.error === 'wrong-password' ? "That's not the password." : '',
+      });
+      if (password === null) return { ok: false, error: 'cancelled' };
+      res = await I.send({ ...message, password });
+    }
+    return res;
+  }
+
+  async function setPassword() {
+    let current;
+    if (state.guard) {
+      current = await passwordDialog({ title: 'Change password', text: 'First, the current password.', action: 'Continue' });
+      if (current === null) return;
+    }
+    const password = await passwordDialog({
+      title: state.guard ? 'New password' : 'Set a password',
+      text: "Best set by someone else. If it's forgotten, the only way out is reinstalling Iblock, which erases your stats.",
+      action: 'Save password',
+      confirm: true,
+    });
+    if (password === null) return;
+    const res = await I.send({ type: 'password', password, current });
+    if (res?.ok) toast('Password lock is on.');
+    else toast(res?.error === 'wrong-password' ? "That's not the current password." : "Couldn't save the password.");
+  }
+
+  async function removePassword() {
+    let error = '';
+    for (;;) {
+      const current = await passwordDialog({ title: 'Remove password', text: 'Enter the password to turn the lock off.', action: 'Remove', error });
+      if (current === null) return;
+      const res = await I.send({ type: 'password', password: '', current });
+      if (res?.ok) {
+        toast('Password lock is off.');
+        return;
+      }
+      if (res?.error !== 'wrong-password') {
+        toast("Couldn't remove the password.");
+        return;
+      }
+      error = "That's not the password.";
+    }
+  }
+
   /* ---------- static structure ---------- */
 
   function build() {
     $('todayApps').replaceChildren(
-      ...I.PLATFORMS.map((p) => {
+      ...I.SHORT_PLATFORMS.map((p) => {
         const li = el('li', 'app', `${GLYPHS[p.id]}<span class="app-n">0</span>`);
         li.dataset.id = p.id;
         return li;
@@ -136,41 +267,61 @@
         chip.type = 'button';
         chip.dataset.choice = String(choice);
         chip.setAttribute('role', 'radio');
-        chip.setAttribute('aria-label', choice === CUSTOM ? 'Custom length' : I.fmtLockLength(choice));
+        chip.setAttribute('aria-label', choice === CUSTOM ? 'Custom length' : I.fmtLength(choice));
         chip.textContent = choice === CUSTOM ? 'Custom' : I.fmtLockChip(choice);
         chip.addEventListener('click', () => pickLock(choice));
         return chip;
       }),
     );
+    $('bonusBtn').querySelector('.label').textContent = `Hold for ${I.BONUS_SCROLLS} more`;
 
     $('plot').append(...Array.from({ length: 7 }, () => el('div', 'col', '<span class="col-val"></span><span class="col-bar"></span>')));
     $('days').append(...Array.from({ length: 7 }, () => el('span')));
+    $('hours').append(...Array.from({ length: 24 }, () => el('span')));
+    $('hourLabels').append(...[0, 6, 12, 18].map((h) => Object.assign(el('span'), { textContent: I.fmtHour(h) })));
+
+    $('badges').replaceChildren(
+      ...I.BADGES.map((b) => {
+        const li = el('li', 'badge-item', `<span class="badge-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${badgeIcon(b)}</svg></span><span class="badge-name"></span>`);
+        li.dataset.id = b.id;
+        li.querySelector('.badge-name').textContent = b.title;
+        return li;
+      }),
+    );
 
     $('appList').replaceChildren(
       ...I.PLATFORMS.map((p) => {
         const li = el(
           'li',
           'app-row',
-          `<span class="tile">${GLYPHS[p.id]}</span><span class="app-name">${p.name}</span><span class="app-count"><b></b> · <span class="app-time"></span></span><span class="app-bar"><span></span></span>`,
+          `<span class="tile">${GLYPHS[p.id]}</span><span class="app-name"></span><span class="app-count"></span><span class="app-bar"><span></span></span>`,
         );
         li.dataset.id = p.id;
+        li.querySelector('.app-name').textContent = p.name;
         return li;
       }),
     );
 
-    $('siteList').replaceChildren(
-      ...I.PLATFORMS.map((p) => {
-        const row = el(
-          'label',
-          'row',
-          `<span class="tile">${GLYPHS[p.id]}</span><span class="row-text"><span class="row-title">${p.name}</span><span class="row-desc">${p.where}</span></span><input type="checkbox" class="switch" role="switch">`,
-        );
-        const input = row.querySelector('input');
-        input.dataset.site = p.id;
-        input.addEventListener('change', () => patch({ sites: { [p.id]: input.checked } }));
-        return row;
-      }),
-    );
+    for (const [listId, kind] of [
+      ['siteList', 'short'],
+      ['feedList', 'feed'],
+    ]) {
+      $(listId).replaceChildren(
+        ...I.PLATFORMS.filter((p) => p.kind === kind).map((p) => {
+          const row = el(
+            'label',
+            'row',
+            `<span class="tile">${GLYPHS[p.id]}</span><span class="row-text"><span class="row-title"></span><span class="row-desc"></span></span><input type="checkbox" class="switch" role="switch">`,
+          );
+          row.querySelector('.row-title').textContent = p.name;
+          row.querySelector('.row-desc').textContent = p.where;
+          const input = row.querySelector('input');
+          input.dataset.site = p.id;
+          input.addEventListener('change', () => patch({ sites: { [p.id]: input.checked } }));
+          return row;
+        }),
+      );
+    }
 
     const version = `Iblock ${ext.runtime.getManifest().version}`;
     $('version').textContent = `${version} · Everything stays on this device`;
@@ -219,7 +370,7 @@
 
   function heroCopy(st, now) {
     const { t, b } = st.today;
-    const watched = `${I.fmtDuration(t)} watched`;
+    const watched = st.minutes ? `${I.fmtDuration(t)} of ${I.fmtDuration(st.minutes * 60)}` : `${I.fmtDuration(t)} watched`;
     switch (st.reason) {
       case 'lock':
         return ['Short-form locked', `${watched} · ${I.fmtNum(b)} blocked`];
@@ -229,17 +380,19 @@
         return ['Blocked completely', `${I.plural(b, 'short', 'shorts')} blocked today`];
       case 'limit':
         return ['Limit reached', `Resets in ${I.fmtLeft(st.until - now)}`];
+      case 'time':
+        return ['Time limit reached', `Resets in ${I.fmtLeft(st.until - now)}`];
       default:
-        if (st.limit === null) return ['No daily limit', `Just counting · ${watched}`];
+        if (st.allowance === null) return ['No daily limit', `${watched} · ${I.fmtNum(b)} blocked`];
         return [st.left === 1 ? '1 scroll left' : `${I.fmtNum(st.left)} scrolls left`, `${watched} · ${I.fmtNum(b)} blocked`];
     }
   }
 
   function renderHero(st, now) {
-    const { today, limit } = st;
+    const { today, allowance } = st;
     $('ringNum').textContent = I.fmtNum(today.n);
-    $('ringSub').textContent = limit === null || limit === 0 ? (today.n === 1 ? 'scroll' : 'scrolls') : `of ${I.fmtNum(limit)}`;
-    const progress = limit === null ? 0 : limit === 0 ? 1 : Math.min(1, today.n / limit);
+    $('ringSub').textContent = !allowance ? (today.n === 1 ? 'scroll' : 'scrolls') : `of ${I.fmtNum(allowance)}`;
+    const progress = allowance === null ? 0 : allowance === 0 ? 1 : Math.min(1, today.n / allowance);
     const fill = $('ringFill');
     fill.style.strokeDasharray = String(RING);
     fill.style.strokeDashoffset = String(RING * (1 - progress));
@@ -263,7 +416,9 @@
 
   function renderAction(st, now) {
     const lock = st.locked ? state.lock : null;
-    $('breakCard').hidden = Boolean(lock);
+    const bonus = !lock && st.canBonus;
+    $('breakCard').hidden = Boolean(lock) || bonus;
+    $('bonusCard').hidden = !bonus;
     $('lockCard').hidden = !lock;
     if (lock) {
       const strict = state.settings.strict;
@@ -274,12 +429,12 @@
       $('unlockBtn').hidden = strict;
       $('lockStrictNote').hidden = !strict;
     }
+
     for (const chip of $('lockChips').children) {
       const on = chip.dataset.choice === String(lockChoice);
       chip.setAttribute('aria-checked', String(on));
       chip.tabIndex = on ? 0 : -1;
     }
-
     const custom = lockChoice === CUSTOM;
     $('customFields').hidden = !custom;
     if (custom) {
@@ -295,7 +450,7 @@
     const ok = validLockLength(minutes);
     const lockBtn = $('lockBtn');
     lockBtn.disabled = !ok;
-    lockBtn.textContent = ok ? `Lock for ${I.fmtLockLength(minutes)}` : minutes < 1 ? 'Pick a length' : '7 days max';
+    lockBtn.textContent = ok ? `Lock for ${I.fmtLength(minutes)}` : minutes < 1 ? 'Pick a length' : '7 days max';
   }
 
   function renderLimit(st) {
@@ -324,21 +479,39 @@
     $('sStreakSub').textContent = streak === 1 ? 'day on track' : 'days on track';
 
     renderChart(st, now);
+    renderHours(now);
 
     const blocked = stats.life.b;
     $('savedTitle').textContent = blocked ? `${I.plural(blocked, 'short', 'shorts')} blocked` : 'Nothing blocked yet';
     $('savedSub').textContent = blocked ? "Every one is a scroll you didn't take." : 'Shorts Iblock stops for you show up here.';
 
+    let earned = 0;
+    for (const li of $('badges').children) {
+      const badge = I.BADGES.find((b) => b.id === li.dataset.id);
+      const when = stats.badges[badge.id];
+      if (when) earned++;
+      li.classList.toggle('earned', Boolean(when));
+      li.title = when ? `${badge.desc}. Earned ${new Date(when).toLocaleDateString([], { month: 'short', day: 'numeric' })}.` : `${badge.desc}.`;
+    }
+    $('badgeCount').textContent = `${earned} of ${I.BADGES.length}`;
+
+    // By time watched, so short-form and feeds sit on one scale.
     const life = stats.life;
-    const top = Math.max(1, ...I.PLATFORM_IDS.map((id) => life.p[id] || 0));
+    const top = Math.max(1, ...I.PLATFORM_IDS.map((id) => life.tp[id] || 0));
     const rows = [...$('appList').children];
     for (const li of rows) {
-      const n = life.p[li.dataset.id] || 0;
-      li.querySelector('.app-count b').textContent = I.fmtNum(n);
-      li.querySelector('.app-time').textContent = I.fmtDuration(life.tp[li.dataset.id] || 0);
-      li.querySelector('.app-bar span').style.transform = `scaleX(${n / top})`;
+      const id = li.dataset.id;
+      const p = I.platformById(id);
+      const n = life.p[id] || 0;
+      const t = life.tp[id] || 0;
+      li.hidden = !state.settings.sites[id] && !n && !t;
+      const count = li.querySelector('.app-count');
+      count.replaceChildren();
+      if (p.kind === 'short') count.append(Object.assign(el('b'), { textContent: I.fmtNum(n) }), ` · ${I.fmtDuration(t)}`);
+      else count.append(Object.assign(el('b'), { textContent: I.fmtDuration(t) }));
+      li.querySelector('.app-bar span').style.transform = `scaleX(${t / top})`;
     }
-    const sorted = rows.slice().sort((a, b) => (life.p[b.dataset.id] || 0) - (life.p[a.dataset.id] || 0));
+    const sorted = rows.slice().sort((a, b) => (life.tp[b.dataset.id] || 0) - (life.tp[a.dataset.id] || 0));
     if (sorted.some((li, i) => li !== rows[i])) $('appList').append(...sorted);
 
     const since = new Date(stats.since).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
@@ -350,8 +523,8 @@
     const week = I.series(stats, now, 7);
     const values = week.map((d) => d.n);
     let max = Math.max(1, ...values);
-    const showLine = st.limit > 0 && st.limit <= max * 1.6;
-    if (showLine) max = Math.max(max, st.limit);
+    const showLine = st.allowance > 0 && st.allowance <= max * 1.6;
+    if (showLine) max = Math.max(max, st.allowance);
 
     const cols = $('plot').querySelectorAll('.col');
     const days = $('days').children;
@@ -371,22 +544,35 @@
     const line = $('limitLine');
     line.hidden = !showLine;
     if (showLine) {
-      line.style.bottom = `${Math.round((st.limit / max) * BAR_AREA)}px`;
-      line.title = `Daily limit: ${st.limit}`;
+      line.style.bottom = `${Math.round((st.allowance / max) * BAR_AREA)}px`;
+      line.title = `Daily limit: ${st.allowance}`;
     }
 
-    const thisWeek = values.reduce((a, b) => a + b, 0);
-    const prev = I.series(stats, now, 7, 7);
-    const lastWeek = prev.reduce((a, d) => a + d.n, 0);
+    const { thisWeek, pct } = I.weekSummary(stats, now);
     const delta = $('weekDelta');
-    if (stats.since <= prev[0].ts && lastWeek > 0) {
-      const pct = Math.round(((thisWeek - lastWeek) / lastWeek) * 100);
+    if (pct === null) {
+      delta.textContent = `${I.fmtNum(thisWeek.n)} this week`;
+      delta.classList.remove('up');
+    } else {
       delta.textContent = pct === 0 ? 'Same as last week' : `${pct > 0 ? '+' : '−'}${Math.abs(pct)}% vs last week`;
       delta.classList.toggle('up', pct > 0);
-    } else {
-      delta.textContent = `${I.fmtNum(thisWeek)} this week`;
-      delta.classList.remove('up');
     }
+  }
+
+  function renderHours(now) {
+    const hours = I.hourTotals(state.stats, now, 30);
+    const max = Math.max(...hours);
+    const peak = max ? hours.indexOf(max) : -1;
+    [...$('hours').children].forEach((bar, h) => {
+      bar.style.height = `${max ? Math.max(2, Math.round((hours[h] / max) * 64)) : 2}px`;
+      bar.classList.toggle('peak', h === peak);
+      bar.title = `${I.fmtHour(h)}: ${I.plural(hours[h], 'scroll', 'scrolls')}`;
+    });
+    $('peakHour').textContent = peak < 0 ? 'Last 30 days' : `Most around ${I.fmtHour(peak)}`;
+    $('hours').setAttribute(
+      'aria-label',
+      peak < 0 ? 'No scrolls in the last 30 days' : `Scrolls by hour over the last 30 days. Most around ${I.fmtHour(peak)}.`,
+    );
   }
 
   function renderSettings(st, now) {
@@ -395,13 +581,27 @@
     const banner = $('strictBanner');
     banner.hidden = !frozen;
     if (frozen) {
-      const when = st.reason === 'limit' ? 'midnight' : I.fmtUntil(st.until, now);
+      const when = st.reason === 'limit' || st.reason === 'time' ? 'midnight' : I.fmtUntil(st.until, now);
       banner.textContent = `Strict mode is on. You can tighten settings, but loosening them waits until ${when}.`;
     }
 
-    for (const input of $('siteList').querySelectorAll('input')) {
+    for (const input of document.querySelectorAll('#siteList input, #feedList input')) {
       input.checked = s.sites[input.dataset.site];
       input.disabled = frozen && input.checked;
+    }
+
+    const { minutes } = s;
+    const minutesInput = $('minutesValue');
+    if (document.activeElement !== minutesInput) minutesInput.value = minutes === null ? 'Off' : String(minutes);
+    $('minutesDesc').textContent = minutes === null ? 'Off. Only the scroll limit counts.' : `Locks after ${I.fmtLength(minutes)} a day, feeds included`;
+    $('minutesDown').disabled = I.stepMinutes(minutes, -1) === minutes;
+    $('minutesUp').disabled = I.stepMinutes(minutes, 1) === minutes || frozen;
+
+    // A switch that would loosen things can't be turned off while strict mode holds.
+    for (const input of document.querySelectorAll('input[data-setting]')) {
+      const key = input.dataset.setting;
+      input.checked = s[key];
+      input.disabled = frozen && s[key] && I.loosens(s, { ...s, [key]: false });
     }
 
     const bedLocked = frozen && s.bedtime.on;
@@ -417,11 +617,11 @@
       input.disabled = bedLocked;
     }
 
-    $('strictOn').checked = s.strict;
-    $('strictOn').disabled = frozen;
-    $('hudOn').checked = s.hud;
-    $('hideOn').checked = s.hide;
-    $('badgeOn').checked = s.badge;
+    const locked = Boolean(state.guard);
+    $('pwDesc').textContent = locked ? 'On. Loosening limits, unlocking early and resetting need the password.' : 'Off. Ask someone you trust to set one.';
+    $('pwSetBtn').textContent = locked ? 'Change' : 'Set';
+    $('pwRemoveBtn').hidden = !locked;
+
     for (const radio of document.querySelectorAll('input[name="theme"]')) radio.checked = radio.value === s.theme;
     $('resetBtn').disabled = frozen;
   }
@@ -429,12 +629,9 @@
   /* ---------- actions ---------- */
 
   async function patch(changes) {
-    const res = await I.send({ type: 'settings', patch: changes });
-    if (res?.ok) {
-      state.settings = res.settings;
-    } else {
-      toast(failure(res, "Couldn't save that. Try again."));
-    }
+    const res = await guarded({ type: 'settings', patch: changes }, 'change this setting');
+    if (res?.ok) state.settings = res.settings;
+    else toast(failure(res, "Couldn't save that. Try again."));
     render();
     return Boolean(res?.ok);
   }
@@ -492,6 +689,26 @@
     });
   }
 
+  // A stepper whose number can also be typed: `steps` through presets with
+  // -/+, any whole number up to `max` by typing. `none` is shown for null.
+  function wireStepper({ input, down, up, max, get, stepper, none, save }) {
+    selectOnFocus(input);
+    down.addEventListener('click', () => save(stepper(get(), -1)));
+    up.addEventListener('click', () => save(stepper(get(), 1)));
+    input.addEventListener('input', () => digitsOnly(input, max));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') input.blur();
+    });
+    input.addEventListener('change', () => {
+      const typed = digitsOnly(input, max);
+      if (!typed || Number(typed) === get()) {
+        input.value = get() === null ? none : String(get());
+        return;
+      }
+      save(Number(typed));
+    });
+  }
+
   function wire() {
     $('tab-today').addEventListener('click', () => setView('today'));
     $('tab-insights').addEventListener('click', () => setView('insights'));
@@ -527,7 +744,7 @@
     }
     $('extendBtn').addEventListener('click', () => startLock(60, true));
     I.holdButton($('unlockBtn'), async () => {
-      const res = await I.send({ type: 'unlock' });
+      const res = await guarded({ type: 'unlock' }, 'end the lock early');
       if (!res?.ok) {
         toast(failure(res, "Couldn't end the lock. Try again."));
         return;
@@ -536,20 +753,35 @@
       render();
       toast('Lock ended.');
     });
+    I.holdButton(
+      $('bonusBtn'),
+      async () => {
+        const res = await guarded({ type: 'bonus' }, 'take extra scrolls');
+        toast(res?.ok ? `${I.BONUS_SCROLLS} more scrolls. Make them count.` : failure(res, "Couldn't add scrolls."));
+      },
+      I.HOLD_FOR_BONUS_MS,
+    );
 
-    $('limitDown').addEventListener('click', () => patch({ limit: I.stepLimit(state.settings.limit, -1) }));
-    const limitInput = $('limitValue');
-    selectOnFocus(limitInput);
-    limitInput.addEventListener('input', () => digitsOnly(limitInput, MAX_LIMIT));
-    limitInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') limitInput.blur();
+    wireStepper({
+      input: $('limitValue'),
+      down: $('limitDown'),
+      up: $('limitUp'),
+      max: MAX_LIMIT,
+      get: () => state.settings.limit,
+      stepper: I.stepLimit,
+      none: '∞',
+      save: (limit) => patch({ limit }),
     });
-    limitInput.addEventListener('change', () => {
-      const typed = digitsOnly(limitInput, MAX_LIMIT);
-      if (!typed || Number(typed) === state.settings.limit) return render();
-      patch({ limit: Number(typed) });
+    wireStepper({
+      input: $('minutesValue'),
+      down: $('minutesDown'),
+      up: $('minutesUp'),
+      max: MAX_MINUTES,
+      get: () => state.settings.minutes,
+      stepper: I.stepMinutes,
+      none: 'Off',
+      save: (minutes) => (minutes === 0 ? render() : patch({ minutes })),
     });
-    $('limitUp').addEventListener('click', () => patch({ limit: I.stepLimit(state.settings.limit, 1) }));
 
     $('bedtimeOn').addEventListener('change', (e) => patch({ bedtime: { on: e.target.checked } }));
     for (const [id, key, other] of [
@@ -567,17 +799,14 @@
       });
     }
 
-    for (const [id, key] of [
-      ['strictOn', 'strict'],
-      ['hudOn', 'hud'],
-      ['hideOn', 'hide'],
-      ['badgeOn', 'badge'],
-    ]) {
-      $(id).addEventListener('change', (e) => patch({ [key]: e.target.checked }));
+    for (const input of document.querySelectorAll('input[data-setting]')) {
+      input.addEventListener('change', () => patch({ [input.dataset.setting]: input.checked }));
     }
     for (const radio of document.querySelectorAll('input[name="theme"]')) {
       radio.addEventListener('change', () => patch({ theme: radio.value }));
     }
+    $('pwSetBtn').addEventListener('click', setPassword);
+    $('pwRemoveBtn').addEventListener('click', removePassword);
 
     const resetBtn = $('resetBtn');
     const disarm = () => {
@@ -593,7 +822,7 @@
         return;
       }
       disarm();
-      const res = await I.send({ type: 'reset' });
+      const res = await guarded({ type: 'reset' }, 'reset your statistics');
       toast(res?.ok ? 'Statistics erased.' : failure(res, "Couldn't reset. Try again."));
     });
 
@@ -615,6 +844,7 @@
       if (changes.settings) state.settings = I.normalizeSettings(changes.settings.newValue);
       if (changes.stats) state.stats = I.normalizeStats(changes.stats.newValue);
       if (changes.lock) state.lock = I.normalizeLock(changes.lock.newValue);
+      if (changes.guard) state.guard = I.normalizeGuard(changes.guard.newValue);
       render();
     });
   }
@@ -629,10 +859,11 @@
   }
 
   async function init() {
+    document.documentElement.classList.toggle('embedded', location.hash.includes('embedded'));
     build();
     wire();
-    state = I.normalizeState(await ext.storage.local.get(['settings', 'stats', 'lock']));
-    setView('today');
+    state = I.normalizeState(await ext.storage.local.get(['settings', 'stats', 'lock', 'guard']));
+    setView(location.hash.includes('insights') ? 'insights' : 'today');
     setInterval(render, 1000);
     checkAccess();
   }
