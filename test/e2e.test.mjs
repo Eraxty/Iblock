@@ -219,6 +219,30 @@ test('YouTube Shorts: counts each short, lets you finish the last one, then lock
   await waitCount(4);
 });
 
+test('scrolling back up to a short you already watched does not count again', async () => {
+  await seed({ settings: { limit: 2 } });
+  const page = await openPage('https://www.youtube.com/shorts/backbackbkA');
+  await waitCount(1);
+  await go(page, '/shorts/backbackbkB');
+  await waitCount(2);
+  await go(page, '/shorts/backbackbkA');
+  await page.waitForTimeout(700);
+  assert.equal((await today()).n, 2, 'scrolling back up is not another short');
+  assert.equal(await overlayUp(page), false, 'and it stays watchable at the limit');
+  await go(page, '/shorts/backbackbkB');
+  await page.waitForTimeout(500);
+  assert.equal(await overlayUp(page), false);
+  await go(page, '/shorts/backbackbkC');
+  await waitOverlay(page, true);
+  assert.equal((await today()).n, 2);
+  await go(page, '/shorts/backbackbkA');
+  await waitOverlay(page, false);
+  await page.reload();
+  await page.waitForTimeout(800);
+  assert.equal(await overlayUp(page), false, 'a reload does not make it new either');
+  assert.equal((await today()).n, 2);
+});
+
 test('a lock covers the page immediately and lifts when it ends', async () => {
   await seed({ settings: { limit: null } });
   const page = await openPage('https://www.youtube.com/shorts/bbbbbbbbbb1');
@@ -278,6 +302,10 @@ test('TikTok: counts the video in the middle of the screen as you scroll', async
   await waitCount(1);
   await page.evaluate(() => window.scrollTo(0, innerHeight));
   await waitCount(2);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(1200);
+  assert.equal((await today()).n, 2, 'scrolling back up to the first video is not another one');
+  assert.equal(await overlayUp(page), false);
   await page.evaluate(() => window.scrollTo(0, innerHeight * 2));
   await waitOverlay(page, true);
   assert.equal((await today()).n, 2);

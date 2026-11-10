@@ -121,7 +121,7 @@
 
   /* ---------- state ---------- */
 
-  const KEYS = ['settings', 'stats', 'lock'];
+  const KEYS = ['settings', 'stats', 'lock', 'seen'];
   const PAUSE_KEY = 'iblock:pause-until';
 
   let alive = true;
@@ -215,8 +215,9 @@
     const navigated = id !== seenId;
     seenId = id;
 
-    // Hitting the limit mid-short shouldn't yank away the short you just got.
-    const finishing = st.reason === 'limit' && item !== null && (item === allowedItem || item === pendingItem);
+    // Hitting the limit mid-short shouldn't yank away the short you just got,
+    // and going back to one you already watched today is free.
+    const finishing = st.reason === 'limit' && item !== null && (item === allowedItem || item === pendingItem || countedToday(item));
     if (st.reason && !finishing) {
       lastItem = null;
       showOverlay('block', st);
@@ -250,14 +251,16 @@
     watchable = true;
     if (isShort && item !== null && item !== lastItem && !document.hidden) {
       lastItem = item;
-      requestCount(item);
+      if (!countedToday(item)) requestCount(item);
     }
     if (isShort) showHud(st);
   }
 
+  const countedToday = (item) => I.seenToday(state.seen).includes(I.countId(platform.id, item));
+
   async function requestCount(item) {
     pendingItem = item;
-    const res = await send({ type: 'count', platform: platform.id });
+    const res = await send({ type: 'count', platform: platform.id, key: I.hashKey(item) });
     if (pendingItem === item) pendingItem = null;
     if (!alive || !res) return;
     if (res.allowed) {
@@ -434,6 +437,7 @@
     if (changes.settings) state.settings = I.normalizeSettings(changes.settings.newValue);
     if (changes.stats) state.stats = I.normalizeStats(changes.stats.newValue);
     if (changes.lock) state.lock = I.normalizeLock(changes.lock.newValue);
+    if (changes.seen) state.seen = I.normalizeSeen(changes.seen.newValue);
     if (changes.settings) applyTheme();
     check();
   }

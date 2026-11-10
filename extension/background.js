@@ -10,7 +10,7 @@
 if (typeof importScripts === 'function' && !globalThis.Iblock) importScripts('shared.js');
 
 const { ext } = Iblock;
-const KEYS = ['settings', 'stats', 'lock', 'guard'];
+const KEYS = ['settings', 'stats', 'lock', 'guard', 'seen'];
 const BOUNDARY_ALARM = 'iblock-boundary';
 const WEEKLY_ALARM = 'iblock-weekly';
 const BADGE_IDLE = '#3A3A3D';
@@ -98,15 +98,19 @@ function celebrate(state, ids) {
 /* ---------- messages ---------- */
 
 const handlers = {
-  // A new short appeared on screen. Either it fits in today's allowance (and
-  // is counted) or it doesn't, in which case it is recorded as blocked.
-  async count({ platform }) {
+  // A new short appeared on screen. A short already counted today is free
+  // (scrolling back up isn't another scroll), even at the limit; otherwise it
+  // either fits in today's allowance and is counted, or is recorded as blocked.
+  async count({ platform, key }) {
     assertPlatform(platform);
     const state = await load();
     if (!state.settings.sites[platform]) return { allowed: true, ignored: true };
     const now = Date.now();
     const st = Iblock.status(state, now);
     const day = Iblock.touchDay(state.stats, now);
+    const id = typeof key === 'string' && key && key.length <= 40 ? `${platform}:${key}` : null;
+    const seen = Iblock.seenToday(state.seen, now);
+    if (id && seen.includes(id) && (!st.reason || st.reason === 'limit')) return { allowed: true, repeat: true, total: day.n };
     if (st.reason) {
       recordBlock(state.stats, day, st.reason);
       const fresh = award(state, Iblock.pendingBadges(state.stats, now), now);
@@ -119,7 +123,8 @@ const handlers = {
     bump(day.h, String(new Date(now).getHours()));
     state.stats.life.n += 1;
     bump(state.stats.life.p, platform);
-    await saveStats(state);
+    if (id) seen.push(id);
+    await ext.storage.local.set({ stats: state.stats, seen: { day: Iblock.dayKey(now), keys: seen.slice(-Iblock.MAX_SEEN) } });
     return { allowed: true, total: day.n };
   },
 
@@ -222,7 +227,7 @@ const handlers = {
     const state = await load();
     if (Iblock.status(state).frozen) throw Iblock.refusal('strict');
     await requirePassword(state, password);
-    await ext.storage.local.set({ stats: Iblock.normalizeStats({ since: Date.now() }) });
+    await ext.storage.local.set({ stats: Iblock.normalizeStats({ since: Date.now() }), seen: null });
     return { ok: true };
   },
 

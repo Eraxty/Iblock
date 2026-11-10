@@ -71,7 +71,7 @@ To update later, run `npm run build` again and install the new `.xpi` the same w
 | TikTok | the whole site (except messages, upload, settings and similar) | each new full-size video that plays in the middle of the screen |
 | Snapchat | `/spotlight` | each new full-size video that plays in the middle of the screen |
 
-A short only counts once the tab is actually visible, and many tabs counting at once never lose or double up scrolls.
+Each short counts once a day: scrolling back up to one you already watched, reloading it or opening it in another tab doesn't count again, and stays watchable even after you hit the limit. A short only counts once the tab is actually visible, and many tabs counting at once never lose or double up scrolls.
 
 ## Development
 

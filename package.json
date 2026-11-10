@@ -1,6 +1,6 @@
 {
   "name": "iblock",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Browser extension that counts, limits and locks YouTube Shorts, Instagram Reels, TikTok, Snapchat Spotlight and Facebook Reels.",
   "type": "module",
