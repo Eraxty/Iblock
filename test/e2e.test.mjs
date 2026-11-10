@@ -299,6 +299,18 @@ test('Instagram: reels feed and single reels count, audio pages do not', async (
   assert.equal(await overlayUp(page), false);
 });
 
+test('Instagram: the home feed and Explore lock with short-form, DMs stay open', async () => {
+  await seed({ settings: { limit: null }, lock: { start: Date.now(), until: Date.now() + 3600e3 } });
+  const page = await openPage('https://www.instagram.com/');
+  await waitOverlay(page, true);
+  await go(page, '/direct/inbox/');
+  await waitOverlay(page, false);
+  await go(page, '/explore/');
+  await waitOverlay(page, true);
+  await go(page, '/some.friend/');
+  await waitOverlay(page, false);
+});
+
 test('popup: lock, strict mode and the limit stepper', async () => {
   await seed({ settings: { limit: 10 } });
   const popup = await openPage(`chrome-extension://${extensionId}/popup/popup.html`);

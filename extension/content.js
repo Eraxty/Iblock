@@ -54,7 +54,9 @@
     },
     instagram: {
       counts: 'url',
-      surface: (path) => /(^|\/)reels?(\/|$)/.test(path) || /^\/explore\/?$/.test(path),
+      // The home feed and Explore are endless too; DMs and profiles stay open.
+      feed: (path) => path === '/' || /^\/explore\/?$/.test(path),
+      surface: (path) => path === '/' || /(^|\/)reels?(\/|$)/.test(path) || /^\/explore\/?$/.test(path),
       item: (path) => path.match(/(?:^|\/)reels?\/(?!audio\/)([\w-]{5,})/)?.[1] ?? null,
       hide: ['a[href="/reels/"]', 'a[role="tab"][href$="/reels/"]', 'a[href="/explore/"]'],
     },
@@ -747,7 +749,7 @@
   }
 
   function pauseCopy(st) {
-    const where = isShort ? platform.name : `your ${platform.label} feed`;
+    const where = isShort && !adapter.feed?.(location.pathname) ? platform.name : `your ${platform.label} feed`;
     const used = [];
     if (st.allowance) used.push(`${st.today.n} of ${st.allowance} scrolls`);
     if (st.minutes) used.push(`${I.fmtDuration(st.today.t)} of ${I.fmtLength(st.minutes)}`);

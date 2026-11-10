@@ -14,7 +14,7 @@ globalThis.Iblock = (() => {
   // counts toward the time limit, but there are no shorts to count.
   const PLATFORMS = Object.freeze([
     { id: 'youtube', kind: 'short', name: 'YouTube Shorts', label: 'YouTube', hosts: ['youtube.com'], where: 'youtube.com/shorts', home: 'https://www.youtube.com/' },
-    { id: 'instagram', kind: 'short', name: 'Instagram Reels', label: 'Instagram', hosts: ['instagram.com'], where: 'Reels and Explore', home: 'https://www.instagram.com/' },
+    { id: 'instagram', kind: 'short', name: 'Instagram Reels', label: 'Instagram', hosts: ['instagram.com'], where: 'Home feed, Reels and Explore', home: null },
     { id: 'tiktok', kind: 'short', name: 'TikTok', label: 'TikTok', hosts: ['tiktok.com'], where: 'All of tiktok.com', home: null },
     { id: 'snapchat', kind: 'short', name: 'Snapchat Spotlight', label: 'Snapchat', hosts: ['snapchat.com'], where: 'snapchat.com/spotlight', home: 'https://www.snapchat.com/' },
     { id: 'facebook', kind: 'short', name: 'Facebook Reels', label: 'Facebook', hosts: ['facebook.com'], where: 'facebook.com/reel', home: 'https://www.facebook.com/' },

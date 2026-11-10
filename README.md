@@ -2,7 +2,7 @@
 
 A browser extension that gets you off short-form video. It counts every Short, Reel and TikTok you scroll past, stops you at a daily limit, and lets you lock all of it for hours at a time.
 
-Works on **YouTube Shorts, Instagram Reels and Explore, TikTok, Snapchat Spotlight and Facebook Reels**, plus the endless feeds of **X, Reddit and Pinterest** if you turn them on. Runs in Chrome, Edge, Brave, Opera, Firefox and Zen.
+Works on **YouTube Shorts, Instagram (Reels, Explore and the home feed), TikTok, Snapchat Spotlight and Facebook Reels**, plus the endless feeds of **X, Reddit and Pinterest** if you turn them on. Runs in Chrome, Edge, Brave, Opera, Firefox and Zen.
 
 ## What it does
 
@@ -65,7 +65,7 @@ To update later, run `npm run build` again and install the new `.xpi` the same w
 | Site | Counts on | How |
 | --- | --- | --- |
 | YouTube | `/shorts/…` | each new short id in the address bar |
-| Instagram | `/reels/…`, `/reel/…`, `/explore/` | each new reel code in the address bar |
+| Instagram | home feed, `/reels/…`, `/reel/…`, `/explore/` | each new reel code in the address bar (the home feed and Explore lock, but aren't counted) |
 | Facebook | `/reel/…` | each new reel id in the address bar |
 | X, Reddit, Pinterest | home and explore-style feeds | not counted, only timed; locked whenever short-form is |
 | TikTok | the whole site (except messages, upload, settings and similar) | each new full-size video that plays in the middle of the screen |
