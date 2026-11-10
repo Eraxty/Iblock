@@ -1,0 +1,76 @@
+{
+  "manifest_version": 3,
+  "name": "Iblock: Shorts & Reels Blocker",
+  "short_name": "Iblock",
+  "version": "1.1.0",
+  "description": "Count, limit and lock YouTube Shorts, Instagram Reels, TikTok, Snapchat Spotlight, Facebook Reels and endless feeds.",
+  "minimum_chrome_version": "110",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Iblock",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png"
+    }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+O" },
+      "description": "Open the Iblock menu"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "alarms", "scripting", "notifications"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.instagram.com/*",
+    "*://*.tiktok.com/*",
+    "*://*.snapchat.com/*",
+    "*://*.facebook.com/*",
+    "*://*.x.com/*",
+    "*://*.twitter.com/*",
+    "*://*.reddit.com/*",
+    "*://*.pinterest.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.instagram.com/*",
+        "*://*.tiktok.com/*",
+        "*://*.snapchat.com/*",
+        "*://*.facebook.com/*",
+        "*://*.x.com/*",
+        "*://*.twitter.com/*",
+        "*://*.reddit.com/*",
+        "*://*.pinterest.com/*"
+      ],
+      "js": ["shared.js", "content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["popup/popup.html"],
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.instagram.com/*",
+        "*://*.tiktok.com/*",
+        "*://*.snapchat.com/*",
+        "*://*.facebook.com/*",
+        "*://*.x.com/*",
+        "*://*.twitter.com/*",
+        "*://*.reddit.com/*",
+        "*://*.pinterest.com/*"
+      ]
+    }
+  ]
+}
