@@ -69,8 +69,9 @@ await context.route('https://www.youtube.com/**', (route) => route.fulfill({ con
 const seed = (data) => worker.evaluate((d) => chrome.storage.local.clear().then(() => chrome.storage.local.set(d)), data);
 for (const page of context.pages()) await page.close(); // the welcome tab
 
-async function capture(name, { url, size, theme = 'light', before }) {
+async function capture(name, { url, size, theme = 'light', before, clock }) {
   const page = await context.newPage();
+  if (clock) await page.clock.setFixedTime(clock);
   await page.emulateMedia({ colorScheme: theme });
   await page.setViewportSize(size);
   await page.goto(url);
@@ -96,22 +97,18 @@ ui.insightsDark2 = await capture('insights-dark-2', {
   size: popup,
   theme: 'dark',
   before: async (p) => {
-    await p.evaluate(() => (document.getElementById('main').scrollTop = 470));
+    // End the view on the badges card rather than halfway through the next heading.
+    await p.evaluate(() => {
+      const main = document.getElementById('main');
+      const card = document.getElementById('badges').closest('.card');
+      main.scrollTop += card.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom + 16;
+    });
     await p.waitForTimeout(300);
   },
 });
 
 await seed({ settings: { limit: 10, pause: false, strict: true, gray: true, theme: 'light' }, stats: sampleStats(7), lock: { start: Date.now() - 2 * 3600e3, until: Date.now() + 3 * 3600e3 } });
 ui.locked = await capture('locked', { url: popupUrl, size: popup });
-ui.settings = await capture('settings', {
-  url: popupUrl,
-  size: popup,
-  before: async (p) => {
-    await p.click('#settingsBtn');
-    await p.evaluate(() => (document.getElementById('main').scrollTop = 600));
-    await p.waitForTimeout(300);
-  },
-});
 
 await seed({ settings: { limit: 10, pause: false, theme: 'light' }, stats: sampleStats(10) });
 ui.lockScreen = await capture('lock-screen', { url: 'https://www.youtube.com/shorts/storeshot01', size: { width: 1280, height: 800 }, before: (p) => p.waitForTimeout(900) });
@@ -121,6 +118,32 @@ ui.pause = await capture('pause', { url: 'https://www.youtube.com/shorts/storesh
 
 await seed({ settings: { limit: 10, pause: false, theme: 'dark' }, stats: sampleStats(7) });
 ui.todayDark = await capture('today-dark', { url: popupUrl, size: popup, theme: 'dark' });
+
+// Bedtime, strict mode and a password all on. The page clock sits at 7:30 PM so bedtime
+// isn't running and the switches aren't frozen, whatever time this script runs. Playwright's
+// clock covers the whole browser context, so this capture has to come last.
+const evening = new Date();
+evening.setHours(19, 30, 0, 0);
+await seed({
+  settings: { limit: 10, pause: false, strict: true, bedtime: { on: true, from: 1380, to: 420 }, theme: 'light' },
+  stats: sampleStats(7),
+  guard: { salt: 'storeshot', hash: 'storeshot' },
+});
+ui.settings = await capture('settings', {
+  url: popupUrl,
+  size: popup,
+  clock: evening,
+  before: async (p) => {
+    await p.click('#settingsBtn');
+    // Scroll so the Protection card ends just above the bottom edge instead of cutting a row in half.
+    await p.evaluate(() => {
+      const main = document.getElementById('main');
+      const card = document.querySelector('[data-setting="strict"]').closest('.card');
+      main.scrollTop += card.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom + 16;
+    });
+    await p.waitForTimeout(300);
+  },
+});
 
 /* ---------- compose ---------- */
 
@@ -132,7 +155,7 @@ const css = `
     font-family: Geist, sans-serif; -webkit-font-smoothing: antialiased; }
   body.dark { --ink: #F2F1EC; --on-ink: #111112; --bg: #0E0E0F; --text: #F2F1EC; --text-2: #A5A39D; --accent: #FF6B35; }
   .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 650; letter-spacing: -0.02em; }
-  .brand svg { width: 28px; height: 28px; }
+  .brand svg { width: var(--mark, 28px); height: var(--mark, 28px); }
   h1 { font-size: 54px; line-height: 1.05; font-weight: 650; letter-spacing: -0.04em; text-wrap: balance; }
   p.sub { font-size: 20px; line-height: 1.45; color: var(--text-2); }
   .shot { display: block; border-radius: 18px; box-shadow: 0 30px 80px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.06); }
@@ -161,7 +184,7 @@ function pageHtml(w, h, body, dark = false) {
   return `<!doctype html><meta charset="utf-8"><style>${css}</style><body class="${dark ? 'dark' : ''}" style="--w:${w}px;--h:${h}px">${body}</body>`;
 }
 
-const ringPill = `<div class="pill" style="right:96px;bottom:150px"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6.5" fill="none" stroke="#F0EFEA" stroke-width="2.5"/><circle cx="9" cy="9" r="6.5" fill="none" stroke="#E8521C" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="40.8" stroke-dashoffset="8.2"/></svg><b>8</b><span style="color:#92908A">/10</span><span style="color:#92908A">·</span><em>2 left</em></div>`;
+const ringPill = `<div class="pill" style="right:60px;top:34px"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6.5" fill="none" stroke="#F0EFEA" stroke-width="2.5"/><circle cx="9" cy="9" r="6.5" fill="none" stroke="#E8521C" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="40.8" stroke-dashoffset="12.2"/></svg><b>7</b><span style="color:#92908A">/10</span><span style="color:#92908A">·</span><em>3 left</em></div>`;
 
 const compositions = {
   '1-count-and-limit': pageHtml(
@@ -189,20 +212,20 @@ const compositions = {
   '4-insights': pageHtml(
     1280,
     800,
-    `<div class="split">
-      <div class="copy">${brand}<h1>See where your time actually goes.</h1>
+    `<div class="split" style="padding:0 80px">
+      <div class="copy">${brand}<h1 style="font-size:52px">See where your time actually goes.</h1>
       <p class="sub">Today, this month and lifetime. Your week against your limit, the hour you scroll most, streaks and badges.</p></div>
-      <div style="display:flex;gap:28px">${img(ui.insightsDark, 340)}${img(ui.insightsDark2, 340)}</div>
+      <div style="display:flex;gap:28px">${img(ui.insightsDark, 320)}${img(ui.insightsDark2, 320)}</div>
     </div>`,
     true,
   ),
   '5-breaks-and-rules': pageHtml(
     1280,
     800,
-    `<div class="split">
-      <div class="copy">${brand}<h1>Take a break. Make it stick.</h1>
+    `<div class="split" style="padding:0 80px">
+      <div class="copy">${brand}<h1 style="font-size:52px">Take a break.<br>Make it stick.</h1>
       <p class="sub">Lock short-form for an hour or a whole weekend, set bedtime, add friction, and use strict mode or a password so future you can't wriggle out.</p></div>
-      <div style="display:flex;gap:28px">${img(ui.locked, 340)}${img(ui.settings, 340)}</div>
+      <div style="display:flex;gap:28px">${img(ui.locked, 320)}${img(ui.settings, 320)}</div>
     </div>`,
   ),
 };
@@ -211,7 +234,7 @@ const smallTile = pageHtml(
   440,
   280,
   `<div style="height:100%;padding:36px 34px;display:grid;align-content:space-between">
-    <div class="brand" style="font-size:30px;gap:14px"><span style="width:52px;height:52px;display:block">${MARK}</span>Iblock</div>
+    <div class="brand" style="font-size:30px;gap:14px;--mark:48px">${MARK}<span>Iblock</span></div>
     <div><p style="font-size:25px;line-height:1.15;font-weight:650;letter-spacing:-0.03em">Shorts, Reels &amp; TikTok,<br>on your terms.</p>
     <p style="margin-top:10px;font-size:15px;color:var(--text-2)">Count, limit and lock short-form.</p></div>
   </div>`,
