@@ -17,6 +17,7 @@ Works on **YouTube Shorts, Instagram (Reels, Explore and the home feed), TikTok,
 - **Strict mode.** While a lock, bedtime or a limit is active, you can tighten settings but not loosen them: no raising limits, turning sites or friction off, or unlocking early.
 - **Password lock.** Someone you trust sets a password; loosening anything, ending a lock early, bonus scrolls and resetting stats all need it. Stored only as a salted PBKDF2 hash.
 - **Lock screen with the menu built in.** Covers the page, pauses the video, stops the player skipping ahead, and shows the full Iblock menu beside it, so you can take a break, change limits or unlock from right there.
+- **Feeds only lose the feed.** On the Instagram home feed and Explore, and the X, Reddit and Pinterest feeds, a lock just hides the posts and puts a small card in their place. Messages, search, notifications and profiles keep working. If a site redesign ever hides the feed from Iblock, the full lock screen covers the page instead.
 - **On-page counter.** A small pill pops up in the corner with `7/10` each time you swipe, then fades away. It stays a bit longer when you're down to the last couple.
 - **Hides the bait.** While locked, Shorts shelves, the Shorts tab and Reels links disappear from YouTube and Instagram.
 - **Insights.** Last 7 days against your limit, week-over-week change, when in the day you scroll most, streak of days under your limit, shorts blocked, breakdown by app.
@@ -65,9 +66,9 @@ To update later, run `npm run build` again and install the new `.xpi` the same w
 | Site | Counts on | How |
 | --- | --- | --- |
 | YouTube | `/shorts/…` | each new short id in the address bar |
-| Instagram | home feed, `/reels/…`, `/reel/…`, `/explore/` | each new reel code in the address bar (the home feed and Explore lock, but aren't counted) |
+| Instagram | home feed, `/reels/…`, `/reel/…`, `/explore/` | each new reel code in the address bar (the home feed and Explore get hidden when locked, but aren't counted) |
 | Facebook | `/reel/…` | each new reel id in the address bar |
-| X, Reddit, Pinterest | home and explore-style feeds | not counted, only timed; locked whenever short-form is |
+| X, Reddit, Pinterest | home and explore-style feeds | not counted, only timed; the feed is hidden whenever short-form is locked |
 | TikTok | the whole site (except messages, upload, settings and similar) | each new full-size video that plays in the middle of the screen |
 | Snapchat | `/spotlight` | each new full-size video that plays in the middle of the screen |
 

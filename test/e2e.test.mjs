@@ -50,8 +50,20 @@ const PAGES = {
       }, { threshold: [0, 0.6, 1] });
       document.querySelectorAll('video').forEach((v, i) => { playable(v, i * 90); io.observe(v); });
     </script>`,
-  instagram: `<!doctype html><title>Instagram</title><p>Reels</p>`,
-  reddit: `<!doctype html><title>Reddit</title><p>Front page</p>`,
+  // Feed sites: a nav with messages and search, and the feed (with a playing
+  // video) in the block Iblock hides when it locks the feed.
+  instagram: `<!doctype html><title>Instagram</title>
+    <style>body{margin:0;display:flex} nav{width:240px;flex:none} main{flex:1;min-height:2000px} video{width:120px;height:120px}</style>
+    <nav><a id="dms" href="/direct/inbox/">Messages</a> <input id="search" placeholder="Search"> <video id="dmVideo" muted loop playsinline></video></nav>
+    <main role="main" id="feed"><p id="post">Reels</p><video id="feedVideo" muted loop playsinline></video></main>
+    <script>${PLAYABLE}
+      for (const [i, v] of [...document.querySelectorAll('video')].entries()) { playable(v, i * 120); v.play().catch(() => {}); }
+    </script>`,
+  reddit: `<!doctype html><title>Reddit</title>
+    <style>body{margin:0;display:flex} nav{width:260px;flex:none} #main-content{flex:1;min-height:2000px}</style>
+    <nav><a id="sub" href="/r/cooking/">r/cooking</a> <input id="search" placeholder="Search"></nav>
+    <main id="main-content"><p id="post">Front page</p></main>
+    <aside id="right-sidebar-container"><p id="popular">Popular communities</p></aside>`,
 };
 
 // A strict policy like real sites send: the page itself may not frame
@@ -171,6 +183,15 @@ const waitCount = (n) => waitFor(async () => (await today()).n === n, `${n} scro
 // The lock screen is the only thing of ours that takes pointer events.
 const overlayUp = (page) => page.evaluate(() => document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.tagName === 'IBLOCK-ROOT');
 const waitOverlay = (page, up) => waitFor(async () => (await overlayUp(page)) === up, `lock screen ${up ? 'shown' : 'hidden'}`);
+// The full lock screen reaches the corners; the card on a feed page doesn't.
+const coverUp = (page) => page.evaluate(() => document.elementFromPoint(4, 4)?.tagName === 'IBLOCK-ROOT');
+const display = (page, id) => page.evaluate((id) => getComputedStyle(document.getElementById(id)).display, id);
+// The element actually under the mouse at the middle of #id.
+const hitId = (page, id) =>
+  page.evaluate((id) => {
+    const r = document.getElementById(id).getBoundingClientRect();
+    return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.id;
+  }, id);
 
 async function go(page, pathname) {
   await page.evaluate((p) => history.pushState({}, '', p), pathname);
@@ -327,16 +348,73 @@ test('Instagram: reels feed and single reels count, audio pages do not', async (
   assert.equal(await overlayUp(page), false);
 });
 
-test('Instagram: the home feed and Explore lock with short-form, DMs stay open', async () => {
+test('Instagram: a lock hides the home feed and Explore, and the rest of the site still works', async () => {
   await seed({ settings: { limit: null }, lock: { start: Date.now(), until: Date.now() + 3600e3 } });
   const page = await openPage('https://www.instagram.com/');
   await waitOverlay(page, true);
+  assert.equal(await display(page, 'post'), 'none', 'feed hidden');
+  assert.equal(await coverUp(page), false, 'a card, not a full-page lock screen');
+  assert.equal(await hitId(page, 'dms'), 'dms', 'the nav can be clicked');
+  await page.click('#search');
+  await page.keyboard.type('a friend');
+  assert.equal(await page.inputValue('#search'), 'a friend', 'typing reaches the page');
+  await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(() => document.getElementById('feedVideo').paused), true, 'the hidden feed is paused');
+  assert.equal(await page.evaluate(() => document.getElementById('dmVideo').paused), false, 'other videos keep playing');
+  assert.equal((await today()).b, 0, 'opening the home feed is not a blocked short');
+
+  // Instagram's own dialogs (say, a new post) open over the card, not under it.
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<div id="dialog" role="dialog" style="position:fixed;inset:20% 25%;background:#fff">New post</div>'));
+  await waitOverlay(page, false);
+  assert.equal(await hitId(page, 'dialog'), 'dialog');
+  await page.evaluate(() => document.getElementById('dialog').remove());
+  await waitOverlay(page, true);
+
   await go(page, '/direct/inbox/');
   await waitOverlay(page, false);
+  assert.equal(await display(page, 'post'), 'block');
   await go(page, '/explore/');
   await waitOverlay(page, true);
+  assert.equal(await display(page, 'post'), 'none');
+  await go(page, '/reels/C0deAbc12/');
+  await waitFor(() => coverUp(page), 'full lock screen on Reels');
+  assert.notEqual(await hitId(page, 'dms'), 'dms', 'Reels are covered completely');
   await go(page, '/some.friend/');
   await waitOverlay(page, false);
+
+  await go(page, '/');
+  await waitOverlay(page, true);
+  await worker.evaluate(() => chrome.storage.local.remove('lock'));
+  await waitOverlay(page, false);
+  assert.equal(await display(page, 'post'), 'block', 'the feed comes back when the lock ends');
+});
+
+test('feeds: if the feed block is missing, the full lock screen covers the page instead', async () => {
+  await seed({ settings: { limit: 0, sites: { reddit: true } } });
+  const page = await openPage('https://www.reddit.com/');
+  await waitOverlay(page, true);
+  assert.equal(await coverUp(page), false);
+  assert.equal(await display(page, 'post'), 'none');
+  assert.equal(await display(page, 'popular'), 'none');
+  assert.equal(await hitId(page, 'sub'), 'sub');
+  // As if Reddit were redesigned and the feed lived somewhere Iblock doesn't know.
+  await page.evaluate(() => document.querySelectorAll('#main-content, #right-sidebar-container').forEach((el) => el.remove()));
+  await waitFor(() => coverUp(page), 'full lock screen', 8000);
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<main id="main-content">Back</main>'));
+  await waitFor(async () => !(await coverUp(page)) && (await overlayUp(page)), 'card again');
+});
+
+test('feeds: the pause screen is a card too, and Show feed opens it', async () => {
+  await seed({ settings: { limit: 10, pause: true, sites: { reddit: true } } });
+  const page = await openPage('https://www.reddit.com/');
+  await waitOverlay(page, true);
+  assert.equal(await coverUp(page), false);
+  assert.equal(await display(page, 'post'), 'none');
+  assert.equal(await hitId(page, 'sub'), 'sub');
+  await page.waitForTimeout(5300);
+  await clickInOverlay(page, 'go');
+  await waitOverlay(page, false);
+  assert.equal(await display(page, 'post'), 'block');
 });
 
 test('popup: lock, strict mode and the limit stepper', async () => {
