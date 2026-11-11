@@ -22,6 +22,7 @@
   //
   // On feed pages a lock only empties the feed itself (`feedHide`, the main one
   // first), so messages, search and the rest of the site keep working around it.
+  // `feedItems` are the posts themselves, to notice a feed nothing is hiding.
   const TIKTOK_NOT_FEED =
     /^\/(messages|tiktokstudio|creator|upload|setting|settings|login|signup|legal|business|coin|feedback|privacy|community-guidelines|about|download|transparency)(\/|$)/;
 
@@ -62,7 +63,9 @@
       surface: (path) => path === '/' || /(^|\/)reels?(\/|$)/.test(path) || /^\/explore\/?$/.test(path),
       item: (path) => path.match(/(?:^|\/)reels?\/(?!audio\/)([\w-]{5,})/)?.[1] ?? null,
       hide: ['a[href="/reels/"]', 'a[role="tab"][href$="/reels/"]', 'a[href="/explore/"]'],
-      feedHide: ['main[role="main"]'],
+      // The home feed is a <div role="main">, profiles and Explore a <main>.
+      feedHide: ['[role="main"]', 'main'],
+      feedItems: 'article, a[href*="/p/"], a[href*="/reel/"]',
     },
     tiktok: {
       counts: 'video',
@@ -85,27 +88,27 @@
       surface: (path) => /^\/(home|explore)(\/|$)/.test(path),
       hide: [],
       feedHide: ['[data-testid="primaryColumn"]'], // the sidebar keeps X's search box
+      feedItems: 'article',
     },
     reddit: {
       counts: 'none',
       surface: (path) => /^\/((best|hot|new|top|rising)\/?)?$/.test(path) || /^\/r\/(popular|all)(\/|$)/.test(path),
       hide: [],
       feedHide: ['#main-content', '#right-sidebar-container', '.content[role="main"]'],
+      feedItems: 'shreddit-post, article, .thing.link',
     },
     pinterest: {
       counts: 'none',
       surface: (path) => /^\/((today|ideas|homefeed)(\/.*)?)?$/.test(path),
       hide: [],
       feedHide: ['[data-test-id="masonry-container"]', '.masonryContainer'],
+      feedItems: '[data-test-id="pin"], a[href^="/pin/"]',
     },
   };
   const adapter = ADAPTERS[platform.id];
   const feedHide = adapter.feedHide ?? [];
   const FEED = feedHide.join(', ');
   const FEED_MEDIA = feedHide.flatMap((s) => [`${s} video`, `${s} audio`]).join(', ');
-  // If none of `feedHide` turns up this long after landing on a feed (say, the
-  // site was redesigned), the full lock screen covers the page instead.
-  const FEED_GRACE_MS = 5000;
 
   const GRAY_RULE = 'video, img, picture, canvas { filter: grayscale(1) !important; }';
   const YT_FEED_RULES = [
@@ -149,7 +152,6 @@
   let overlaySoft = false; // shown as a card over a hidden feed instead of covering the page
   let overlayKey = '';
   let feedPage = false; // check() found a feed page (not a short) on screen
-  let feedSince = 0; // when we landed on it
   let pauseUntil = readPause(); // the pause screen stays away until then
   let pauseShownAt = 0;
   let leaving = false;
@@ -234,7 +236,6 @@
     const navigated = id !== seenId;
     seenId = id;
     feedPage = platform.kind === 'feed' || Boolean(adapter.feed?.(path));
-    if (navigated) feedSince = now;
 
     // Hitting the limit mid-short shouldn't yank away the short you just got,
     // and going back to one you already watched today is free.
@@ -281,8 +282,18 @@
 
   const countedToday = (item) => I.seenToday(state.seen).includes(I.countId(platform.id, item));
 
-  // A feed page gets the small card while its feed is on the page, or may still be about to be.
-  const wantSoft = () => feedPage && FEED !== '' && (document.querySelector(FEED) !== null || Date.now() - feedSince < FEED_GRACE_MS);
+  // A feed page gets the small card, unless posts are on screen with none of
+  // `feedHide` there to empty (say, after a redesign): then the full lock
+  // screen covers the page. A slow page or a login screen keeps the card.
+  function wantSoft() {
+    if (!feedPage || !FEED) return false;
+    if (document.querySelector(FEED)) return true;
+    for (const el of document.querySelectorAll(adapter.feedItems)) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight) return false;
+    }
+    return true;
+  }
 
   async function requestCount(item) {
     pendingItem = item;

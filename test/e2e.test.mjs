@@ -55,7 +55,7 @@ const PAGES = {
   instagram: `<!doctype html><title>Instagram</title>
     <style>body{margin:0;display:flex} nav{width:240px;flex:none} main{flex:1;min-height:2000px} video{width:120px;height:120px}</style>
     <nav><a id="dms" href="/direct/inbox/">Messages</a> <input id="search" placeholder="Search"> <video id="dmVideo" muted loop playsinline></video></nav>
-    <main role="main" id="feed"><p id="post">Reels</p><video id="feedVideo" muted loop playsinline></video></main>
+    <div role="main" id="feed"><p id="post">Reels</p><video id="feedVideo" muted loop playsinline></video></div>
     <script>${PLAYABLE}
       for (const [i, v] of [...document.querySelectorAll('video')].entries()) { playable(v, i * 120); v.play().catch(() => {}); }
     </script>`,
@@ -389,7 +389,7 @@ test('Instagram: a lock hides the home feed and Explore, and the rest of the sit
   assert.equal(await display(page, 'post'), 'block', 'the feed comes back when the lock ends');
 });
 
-test('feeds: if the feed block is missing, the full lock screen covers the page instead', async () => {
+test('feeds: posts showing with no feed block to hide them bring back the full lock screen', async () => {
   await seed({ settings: { limit: 0, sites: { reddit: true } } });
   const page = await openPage('https://www.reddit.com/');
   await waitOverlay(page, true);
@@ -399,9 +399,14 @@ test('feeds: if the feed block is missing, the full lock screen covers the page 
   assert.equal(await hitId(page, 'sub'), 'sub');
   // As if Reddit were redesigned and the feed lived somewhere Iblock doesn't know.
   await page.evaluate(() => document.querySelectorAll('#main-content, #right-sidebar-container').forEach((el) => el.remove()));
-  await waitFor(() => coverUp(page), 'full lock screen', 8000);
-  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<main id="main-content">Back</main>'));
+  await page.waitForTimeout(1200);
+  assert.equal(await coverUp(page), false, 'no posts showing (a slow page, a login screen): the card stays');
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<shreddit-post id="leak" style="display:block;height:200px">A post</shreddit-post>'));
+  await waitFor(() => coverUp(page), 'full lock screen once posts show with nothing hiding them');
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<main id="main-content"></main>'));
+  await page.evaluate(() => document.getElementById('main-content').append(document.getElementById('leak')));
   await waitFor(async () => !(await coverUp(page)) && (await overlayUp(page)), 'card again');
+  assert.equal(await display(page, 'leak'), 'none');
 });
 
 test('feeds: the pause screen is a card too, and Show feed opens it', async () => {
