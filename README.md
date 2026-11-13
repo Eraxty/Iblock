@@ -30,11 +30,16 @@ Everything is stored in your browser. Iblock makes no network requests and colle
 
 ## Install
 
+Ready-made builds are on the [Releases page](https://github.com/Eraxty/Iblock/releases/latest), so you don't need to build anything:
+
+- `iblock-chrome.zip` for Chrome, Edge, Brave and Opera. Unzip it, then follow the steps below and pick the unzipped folder.
+- `iblock-firefox.xpi` for Zen, Firefox Developer Edition and Nightly (see the Zen steps below). Regular Firefox only installs signed add-ons, so use the addons.mozilla.org listing there once it's live.
+
 ### Chrome, Edge, Brave, Opera
 
 1. Open `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode**.
-3. Click **Load unpacked** and pick the `extension` folder.
+3. Click **Load unpacked** and pick the `extension` folder (or the folder you unzipped from the release).
 4. Pin Iblock from the puzzle-piece menu so it's always one click away.
 
 Anywhere in the browser, **Alt+Shift+O** opens the Iblock menu. Change it at `chrome://extensions/shortcuts`, or in Firefox/Zen under `about:addons` → gear → **Manage Extension Shortcuts**.
@@ -56,8 +61,8 @@ If the popup says it can't see the sites yet, click **Allow access**.
 These can install Iblock permanently without signing:
 
 1. Open `about:config` and set `xpinstall.signatures.required` to `false`.
-2. Run `npm run build`.
-3. Open `about:addons`, click the gear icon, choose **Install Add-on From File…** and pick `dist/iblock-firefox.xpi`.
+2. Download `iblock-firefox.xpi` from the [latest release](https://github.com/Eraxty/Iblock/releases/latest), or run `npm run build` to get `dist/iblock-firefox.xpi`.
+3. Open `about:addons`, click the gear icon, choose **Install Add-on From File…** and pick the `.xpi`.
 
 To update later, run `npm run build` again and install the new `.xpi` the same way. In Chrome, click the reload arrow on Iblock's card in `chrome://extensions`.
 
