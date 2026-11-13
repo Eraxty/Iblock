@@ -2,7 +2,7 @@
 
 A browser extension that gets you off short-form video. It counts every Short, Reel and TikTok you scroll past, stops you at a daily limit, and lets you lock all of it for hours at a time.
 
-Works on **YouTube Shorts, Instagram Reels and Explore, TikTok, Snapchat Spotlight and Facebook Reels**, plus the endless feeds of **X, Reddit and Pinterest** if you turn them on. Runs in Chrome, Edge, Brave, Opera, Firefox and Zen.
+Works on **YouTube Shorts, Instagram (Reels, Explore and the home feed), TikTok, Snapchat Spotlight and Facebook Reels**, plus the endless feeds of **X, Reddit and Pinterest** if you turn them on. Runs in Chrome, Edge, Brave, Opera, Firefox and Zen.
 
 ## What it does
 
@@ -17,6 +17,7 @@ Works on **YouTube Shorts, Instagram Reels and Explore, TikTok, Snapchat Spotlig
 - **Strict mode.** While a lock, bedtime or a limit is active, you can tighten settings but not loosen them: no raising limits, turning sites or friction off, or unlocking early.
 - **Password lock.** Someone you trust sets a password; loosening anything, ending a lock early, bonus scrolls and resetting stats all need it. Stored only as a salted PBKDF2 hash.
 - **Lock screen with the menu built in.** Covers the page, pauses the video, stops the player skipping ahead, and shows the full Iblock menu beside it, so you can take a break, change limits or unlock from right there.
+- **Feeds only lose the feed.** On the Instagram home feed and Explore, and the X, Reddit and Pinterest feeds, a lock just hides the posts and puts a small card in their place. Messages, search, notifications and profiles keep working. If a site redesign ever hides the feed from Iblock, the full lock screen covers the page instead.
 - **On-page counter.** A small pill pops up in the corner with `7/10` each time you swipe, then fades away. It stays a bit longer when you're down to the last couple.
 - **Hides the bait.** While locked, Shorts shelves, the Shorts tab and Reels links disappear from YouTube and Instagram.
 - **Insights.** Last 7 days against your limit, week-over-week change, when in the day you scroll most, streak of days under your limit, shorts blocked, breakdown by app.
@@ -29,11 +30,16 @@ Everything is stored in your browser. Iblock makes no network requests and colle
 
 ## Install
 
+Ready-made builds are on the [Releases page](https://github.com/Eraxty/Iblock/releases/latest), so you don't need to build anything:
+
+- `iblock-chrome.zip` for Chrome, Edge, Brave and Opera. Unzip it, then follow the steps below and pick the unzipped folder.
+- `iblock-firefox.xpi` for Zen, Firefox Developer Edition and Nightly (see the Zen steps below). Regular Firefox only installs signed add-ons, so use the addons.mozilla.org listing there once it's live.
+
 ### Chrome, Edge, Brave, Opera
 
 1. Open `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode**.
-3. Click **Load unpacked** and pick the `extension` folder.
+3. Click **Load unpacked** and pick the `extension` folder (or the folder you unzipped from the release).
 4. Pin Iblock from the puzzle-piece menu so it's always one click away.
 
 Anywhere in the browser, **Alt+Shift+O** opens the Iblock menu. Change it at `chrome://extensions/shortcuts`, or in Firefox/Zen under `about:addons` → gear → **Manage Extension Shortcuts**.
@@ -55,8 +61,8 @@ If the popup says it can't see the sites yet, click **Allow access**.
 These can install Iblock permanently without signing:
 
 1. Open `about:config` and set `xpinstall.signatures.required` to `false`.
-2. Run `npm run build`.
-3. Open `about:addons`, click the gear icon, choose **Install Add-on From File…** and pick `dist/iblock-firefox.xpi`.
+2. Download `iblock-firefox.xpi` from the [latest release](https://github.com/Eraxty/Iblock/releases/latest), or run `npm run build` to get `dist/iblock-firefox.xpi`.
+3. Open `about:addons`, click the gear icon, choose **Install Add-on From File…** and pick the `.xpi`.
 
 To update later, run `npm run build` again and install the new `.xpi` the same way. In Chrome, click the reload arrow on Iblock's card in `chrome://extensions`.
 
@@ -65,13 +71,13 @@ To update later, run `npm run build` again and install the new `.xpi` the same w
 | Site | Counts on | How |
 | --- | --- | --- |
 | YouTube | `/shorts/…` | each new short id in the address bar |
-| Instagram | `/reels/…`, `/reel/…`, `/explore/` | each new reel code in the address bar |
+| Instagram | home feed, `/reels/…`, `/reel/…`, `/explore/` | each new reel code in the address bar (the home feed and Explore get hidden when locked, but aren't counted) |
 | Facebook | `/reel/…` | each new reel id in the address bar |
-| X, Reddit, Pinterest | home and explore-style feeds | not counted, only timed; locked whenever short-form is |
+| X, Reddit, Pinterest | home and explore-style feeds | not counted, only timed; the feed is hidden whenever short-form is locked |
 | TikTok | the whole site (except messages, upload, settings and similar) | each new full-size video that plays in the middle of the screen |
 | Snapchat | `/spotlight` | each new full-size video that plays in the middle of the screen |
 
-A short only counts once the tab is actually visible, and many tabs counting at once never lose or double up scrolls.
+Each short counts once a day: scrolling back up to one you already watched, reloading it or opening it in another tab doesn't count again, and stays watchable even after you hit the limit. A short only counts once the tab is actually visible, and many tabs counting at once never lose or double up scrolls.
 
 ## Development
 

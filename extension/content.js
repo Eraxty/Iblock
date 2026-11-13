@@ -19,6 +19,10 @@
   // How shorts are counted: "url" sites put the short's id in the address bar
   // as you swipe; on "video" sites we watch which big video is playing in the
   // middle of the screen; "none" is for feeds, which are timed but not counted.
+  //
+  // On feed pages a lock only empties the feed itself (`feedHide`, the main one
+  // first), so messages, search and the rest of the site keep working around it.
+  // `feedItems` are the posts themselves, to notice a feed nothing is hiding.
   const TIKTOK_NOT_FEED =
     /^\/(messages|tiktokstudio|creator|upload|setting|settings|login|signup|legal|business|coin|feedback|privacy|community-guidelines|about|download|transparency)(\/|$)/;
 
@@ -54,9 +58,14 @@
     },
     instagram: {
       counts: 'url',
-      surface: (path) => /(^|\/)reels?(\/|$)/.test(path) || /^\/explore\/?$/.test(path),
+      // The home feed and Explore are endless too; DMs and profiles stay open.
+      feed: (path) => path === '/' || /^\/explore\/?$/.test(path),
+      surface: (path) => path === '/' || /(^|\/)reels?(\/|$)/.test(path) || /^\/explore\/?$/.test(path),
       item: (path) => path.match(/(?:^|\/)reels?\/(?!audio\/)([\w-]{5,})/)?.[1] ?? null,
       hide: ['a[href="/reels/"]', 'a[role="tab"][href$="/reels/"]', 'a[href="/explore/"]'],
+      // The home feed is a <div role="main">, profiles and Explore a <main>.
+      feedHide: ['[role="main"]', 'main'],
+      feedItems: 'article, a[href*="/p/"], a[href*="/reel/"]',
     },
     tiktok: {
       counts: 'video',
@@ -78,19 +87,28 @@
       counts: 'none',
       surface: (path) => /^\/(home|explore)(\/|$)/.test(path),
       hide: [],
+      feedHide: ['[data-testid="primaryColumn"]'], // the sidebar keeps X's search box
+      feedItems: 'article',
     },
     reddit: {
       counts: 'none',
       surface: (path) => /^\/((best|hot|new|top|rising)\/?)?$/.test(path) || /^\/r\/(popular|all)(\/|$)/.test(path),
       hide: [],
+      feedHide: ['#main-content', '#right-sidebar-container', '.content[role="main"]'],
+      feedItems: 'shreddit-post, article, .thing.link',
     },
     pinterest: {
       counts: 'none',
       surface: (path) => /^\/((today|ideas|homefeed)(\/.*)?)?$/.test(path),
       hide: [],
+      feedHide: ['[data-test-id="masonry-container"]', '.masonryContainer'],
+      feedItems: '[data-test-id="pin"], a[href^="/pin/"]',
     },
   };
   const adapter = ADAPTERS[platform.id];
+  const feedHide = adapter.feedHide ?? [];
+  const FEED = feedHide.join(', ');
+  const FEED_MEDIA = feedHide.flatMap((s) => [`${s} video`, `${s} audio`]).join(', ');
 
   const GRAY_RULE = 'video, img, picture, canvas { filter: grayscale(1) !important; }';
   const YT_FEED_RULES = [
@@ -119,7 +137,7 @@
 
   /* ---------- state ---------- */
 
-  const KEYS = ['settings', 'stats', 'lock'];
+  const KEYS = ['settings', 'stats', 'lock', 'seen'];
   const PAUSE_KEY = 'iblock:pause-until';
 
   let alive = true;
@@ -131,7 +149,9 @@
   let allowedItem = null; // most recent short the background let through
   let videoItem = null; // key of the big playing video (video sites)
   let overlayReason = null; // why the overlay is up: a block reason, or 'pause'
+  let overlaySoft = false; // shown as a card over a hidden feed instead of covering the page
   let overlayKey = '';
+  let feedPage = false; // check() found a feed page (not a short) on screen
   let pauseUntil = readPause(); // the pause screen stays away until then
   let pauseShownAt = 0;
   let leaving = false;
@@ -192,17 +212,20 @@
     const enabled = s.sites[platform.id];
     const path = location.pathname;
     const onSurface = enabled && adapter.surface(path);
-    setPageCss({
+    const css = {
       hide: enabled && s.hide && st.reason !== null,
       gray: onSurface && s.gray,
       feed: enabled && s.ytFeed && platform.id === 'youtube',
-    });
+      feedLock: false,
+    };
     scheduleBoundary();
 
     if (!onSurface) {
+      setPageCss(css);
       seenId = null;
       lastItem = null;
       videoItem = null;
+      feedPage = false;
       hideOverlay();
       hideHud();
       return;
@@ -212,14 +235,18 @@
     const id = item ?? `path:${path}`;
     const navigated = id !== seenId;
     seenId = id;
+    feedPage = platform.kind === 'feed' || Boolean(adapter.feed?.(path));
 
-    // Hitting the limit mid-short shouldn't yank away the short you just got.
-    const finishing = st.reason === 'limit' && item !== null && (item === allowedItem || item === pendingItem);
-    if (st.reason && !finishing) {
+    // Hitting the limit mid-short shouldn't yank away the short you just got,
+    // and going back to one you already watched today is free.
+    const finishing = st.reason === 'limit' && item !== null && (item === allowedItem || item === pendingItem || countedToday(item));
+    const blocked = st.reason !== null && !finishing;
+    setPageCss({ ...css, feedLock: feedPage && (blocked || (s.pause && pauseUntil <= now)) });
+    if (blocked) {
       lastItem = null;
       showOverlay('block', st);
       hideHud();
-      if (navigated && isShort) send({ type: 'blocked', platform: platform.id });
+      if (navigated && isShort && !feedPage) send({ type: 'blocked', platform: platform.id });
       return;
     }
 
@@ -248,14 +275,29 @@
     watchable = true;
     if (isShort && item !== null && item !== lastItem && !document.hidden) {
       lastItem = item;
-      requestCount(item);
+      if (!countedToday(item)) requestCount(item);
     }
     if (isShort) showHud(st);
   }
 
+  const countedToday = (item) => I.seenToday(state.seen).includes(I.countId(platform.id, item));
+
+  // A feed page gets the small card, unless posts are on screen with none of
+  // `feedHide` there to empty (say, after a redesign): then the full lock
+  // screen covers the page. A slow page or a login screen keeps the card.
+  function wantSoft() {
+    if (!feedPage || !FEED) return false;
+    if (document.querySelector(FEED)) return true;
+    for (const el of document.querySelectorAll(adapter.feedItems)) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight) return false;
+    }
+    return true;
+  }
+
   async function requestCount(item) {
     pendingItem = item;
-    const res = await send({ type: 'count', platform: platform.id });
+    const res = await send({ type: 'count', platform: platform.id, key: I.hashKey(item) });
     if (pendingItem === item) pendingItem = null;
     if (!alive || !res) return;
     if (res.allowed) {
@@ -358,11 +400,13 @@
 
   // One stylesheet for everything Iblock changes on the page itself. One rule
   // per selector, so a selector a browser doesn't know can't sink the rest.
-  function setPageCss({ hide, gray, feed }) {
+  function setPageCss({ hide, gray, feed, feedLock }) {
     const rules = [];
     if (hide) rules.push(...adapter.hide.map((s) => `${s} { display: none !important; }`));
     if (gray) rules.push(GRAY_RULE);
     if (feed) rules.push(...YT_FEED_RULES);
+    // Empty the feed but keep its box, so the card can stand in its place.
+    if (feedLock) rules.push(...feedHide.map((s) => `${s} > * { display: none !important; }`));
     const css = rules.join('\n');
     if (!css) {
       pageStyle?.remove();
@@ -376,22 +420,25 @@
     if (!pageStyle.isConnected) (document.head || document.documentElement).append(pageStyle);
   }
 
+  // A hidden feed keeps playing (and can be heard) unless it's paused. With the
+  // card up, only the feed's own media is stopped, not a video in your DMs.
   function pauseMedia() {
-    for (const m of document.querySelectorAll('video, audio')) {
+    for (const m of document.querySelectorAll(overlaySoft ? FEED_MEDIA : 'video, audio')) {
       if (m.paused) continue;
       m.pause();
       pausedByUs.add(m);
     }
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (!overlaySoft && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
 
   const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
   const PLAY_KEYS = new Set([' ', 'k', 'K', 'Enter']);
 
-  // While the overlay is up, keep keys and scrolling away from the page so the
-  // player can't skip to the next short underneath it.
+  // While the lock screen is up, keep keys and scrolling away from the page so
+  // the player can't skip to the next short underneath it. The feed card leaves
+  // them alone: you're meant to keep using the rest of the site.
   function swallow(e) {
-    if (!overlayReason || (ui && e.composedPath().includes(ui.host))) return;
+    if (!overlayReason || overlaySoft || (ui && e.composedPath().includes(ui.host))) return;
     e.stopImmediatePropagation();
     if (e.type === 'wheel' || e.type === 'touchmove') {
       if (e.cancelable) e.preventDefault();
@@ -408,8 +455,10 @@
     if (!(e.target instanceof HTMLMediaElement)) return;
     check();
     if (overlayReason) {
-      e.target.pause();
-      pausedByUs.add(e.target);
+      if (!overlaySoft || e.target.matches(FEED_MEDIA)) {
+        e.target.pause();
+        pausedByUs.add(e.target);
+      }
       return;
     }
     const s = state?.settings;
@@ -432,6 +481,7 @@
     if (changes.settings) state.settings = I.normalizeSettings(changes.settings.newValue);
     if (changes.stats) state.stats = I.normalizeStats(changes.stats.newValue);
     if (changes.lock) state.lock = I.normalizeLock(changes.lock.newValue);
+    if (changes.seen) state.seen = I.normalizeSeen(changes.seen.newValue);
     if (changes.settings) applyTheme();
     check();
   }
@@ -607,6 +657,27 @@
     }
     .menu:empty { display: none; }
     .menu iframe { display: block; width: 100%; height: 100%; border: 0; }
+
+    /* On a feed page: a card where the feed was, and the rest of the site still usable. */
+    .overlay.card {
+      inset: auto; top: 50%; left: 50%; display: block;
+      width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+      padding: 28px; border: 1px solid var(--line); border-radius: 18px;
+      background: var(--surface); box-shadow: var(--shadow-lg);
+      transform: translate(-50%, -50%);
+    }
+    .card .layout { display: block; }
+    .card .panel { max-width: none; }
+    .card .brand { margin-bottom: 24px; }
+    .card .badge { width: 40px; height: 40px; margin-bottom: 16px; border-radius: 12px; }
+    .card .badge svg { width: 20px; height: 20px; }
+    .card h1 { margin-bottom: 8px; font-size: 22px; }
+    .card .lead { margin-bottom: 20px; font-size: 14px; }
+    .card .timer { padding: 12px 16px; background: var(--bg); }
+    .card .timer-value { font-size: 22px; }
+    .card .actions { margin-top: 20px; }
+    .card .note { margin-top: 16px; }
+    .card.dodge { visibility: hidden; }
     @media (max-width: 900px) {
       .layout { flex-direction: column; gap: 40px; }
       .panel { width: 100%; }
@@ -687,7 +758,9 @@
       timerLabel: $('.timer-label'),
       timerValue: $('.timer-value'),
       breath: $('.breath'),
+      tipRow: $('.tip'),
       tip: $('.tip-text'),
+      actions: $('.actions'),
       leave: $('.leave'),
       go: $('.go'),
       close: $('.close'),
@@ -719,8 +792,8 @@
     ui.wrap.dataset.theme = pref === 'system' ? (darkQuery.matches ? 'dark' : 'light') : pref;
   }
 
-  function blockCopy(st) {
-    const what = isShort ? 'Short-form is' : 'Feeds are';
+  function blockCopy(st, soft) {
+    const what = soft ? 'Your feed is' : isShort ? 'Short-form is' : 'Feeds are';
     const until = st.until ? I.fmtUntil(st.until) : '';
     switch (st.reason) {
       case 'lock':
@@ -728,7 +801,7 @@
       case 'bedtime':
         return { icon: 'moon', title: `Bedtime. ${what} off.`, lead: `Bedtime mode runs until ${until}. Get some sleep.`, timer: 'Back in' };
       case 'off':
-        return { icon: 'shield', title: `${what} blocked.`, lead: 'You turned short-form off completely. Change that from the menu any time.', timer: null };
+        return { icon: 'shield', title: `${what} blocked.`, lead: 'You turned short-form off completely. Change that from the Iblock menu any time.', timer: null };
       case 'time':
         return {
           icon: 'time',
@@ -747,7 +820,7 @@
   }
 
   function pauseCopy(st) {
-    const where = isShort ? platform.name : `your ${platform.label} feed`;
+    const where = feedPage ? `your ${platform.label} feed` : platform.name;
     const used = [];
     if (st.allowance) used.push(`${st.today.n} of ${st.allowance} scrolls`);
     if (st.minutes) used.push(`${I.fmtDuration(st.today.t)} of ${I.fmtLength(st.minutes)}`);
@@ -758,37 +831,52 @@
   function showOverlay(mode, st) {
     const u = ensureUi();
     applyTheme();
+    const soft = wantSoft();
     const reason = mode === 'pause' ? 'pause' : st.reason;
-    const key = mode === 'pause' ? 'pause' : `${st.reason}|${st.until}|${st.allowance}|${st.minutes}`;
+    const key = `${soft}|${mode === 'pause' ? 'pause' : `${st.reason}|${st.until}|${st.allowance}|${st.minutes}`}`;
     if (key !== overlayKey) {
       overlayKey = key;
-      const copy = mode === 'pause' ? pauseCopy(st) : blockCopy(st);
+      const copy = mode === 'pause' ? pauseCopy(st) : blockCopy(st, soft);
       // SVG elements have no .hidden property, so set the attribute itself.
       for (const svg of u.icons) svg.toggleAttribute('hidden', svg.dataset.icon !== copy.icon);
+      u.overlay.classList.toggle('card', soft);
+      u.overlay.setAttribute('aria-modal', String(!soft));
+      u.where.textContent = soft ? `${platform.label} feed` : platform.name;
       u.title.textContent = copy.title;
       u.lead.textContent = copy.lead;
       u.timer.hidden = !copy.timer;
       u.timerLabel.textContent = copy.timer || '';
       u.leave.textContent = mode === 'pause' ? 'Not now' : platform.home ? `Go to ${platform.label} home` : 'Close tab';
-      u.close.hidden = mode === 'pause' || !platform.home;
+      u.leave.hidden = soft;
+      u.close.hidden = soft || mode === 'pause' || !platform.home;
       u.go.hidden = mode !== 'pause';
+      u.actions.hidden = soft && mode !== 'pause';
       u.breath.hidden = mode !== 'pause';
-      u.menuNote.hidden = mode !== 'block';
+      u.tipRow.hidden = soft;
+      u.menuNote.hidden = !soft && mode !== 'block';
+      u.menuNote.textContent = soft
+        ? `Messages, search and the rest of ${platform.label} still work.`
+        : 'Take a break, change your limits or unlock early from the menu.';
     }
     if (overlayReason !== reason) {
       u.tip.textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
       if (mode === 'pause') startPause();
     }
     // The lock screen carries the real Iblock menu, so everything is one click away.
-    if (mode === 'block' && !u.menu.firstChild) {
-      const frame = document.createElement('iframe');
-      frame.title = 'Iblock menu';
-      frame.src = ext.runtime.getURL('popup/popup.html#embedded');
-      u.menu.append(frame);
-    } else if (mode === 'pause') {
+    if (mode === 'block' && !soft) {
+      if (!u.menu.firstChild) {
+        const frame = document.createElement('iframe');
+        frame.title = 'Iblock menu';
+        frame.src = ext.runtime.getURL('popup/popup.html#embedded');
+        u.menu.append(frame);
+      }
+    } else {
       u.menu.replaceChildren();
     }
     overlayReason = reason;
+    overlaySoft = soft;
+    if (soft) settleCard();
+    else u.overlay.style.removeProperty('left');
     updateOverlay();
     if (u.overlay.hidden) {
       u.overlay.hidden = false;
@@ -796,6 +884,22 @@
     }
     pauseMedia();
     if (!tickTimer) tickTimer = setInterval(overlayTick, 250);
+  }
+
+  // The card stands where the feed was, so the site's own menus and panels
+  // beside it stay clear, and it steps aside while the site has a dialog open over it.
+  function settleCard() {
+    const feed = feedHide.map((s) => document.querySelector(s)).find(Boolean)?.getBoundingClientRect();
+    const half = Math.min(400, innerWidth - 32) / 2 + 16;
+    const x = feed?.width ? feed.left + feed.width / 2 : innerWidth / 2;
+    ui.overlay.style.left = `${Math.round(Math.min(Math.max(x, half), innerWidth - half))}px`;
+    const card = ui.overlay.getBoundingClientRect();
+    const covered = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"], dialog[open]')].some((d) => {
+      const r = d.getBoundingClientRect();
+      const shown = r.width > 0 && r.height > 0 && (d.checkVisibility?.({ visibilityProperty: true, opacityProperty: true }) ?? true);
+      return shown && r.left < card.right && r.right > card.left && r.top < card.bottom && r.bottom > card.top;
+    });
+    ui.overlay.classList.toggle('dodge', covered);
   }
 
   function startPause() {
@@ -821,7 +925,8 @@
     if (overlayReason === 'pause') {
       const left = Math.ceil((pauseShownAt + I.PAUSE_SECONDS * 1000 - Date.now()) / 1000);
       ui.go.disabled = left > 0;
-      ui.go.textContent = left > 0 ? `Open in ${left}s` : `Open ${isShort ? platform.label : 'feed'}`;
+      if (overlaySoft) ui.go.textContent = left > 0 ? `Show feed in ${left}s` : 'Show feed';
+      else ui.go.textContent = left > 0 ? `Open in ${left}s` : `Open ${isShort ? platform.label : 'feed'}`;
       return;
     }
     const st = I.status(state);
@@ -830,6 +935,8 @@
 
   function overlayTick() {
     if (!alive || !overlayReason) return;
+    if (wantSoft() !== overlaySoft) return check(); // the feed turned up, or never did
+    if (overlaySoft) settleCard();
     pauseMedia();
     const st = I.status(state);
     const stale = overlayReason === 'pause' ? st.reason !== null : st.reason !== overlayReason || (st.until && st.until <= Date.now());
@@ -840,12 +947,14 @@
   function hideOverlay() {
     if (!overlayReason) return;
     overlayReason = null;
+    overlaySoft = false;
     overlayKey = '';
     clearInterval(tickTimer);
     tickTimer = 0;
     pausedByUs.clear();
     if (ui) {
-      ui.overlay.classList.remove('show');
+      ui.overlay.classList.remove('show', 'card', 'dodge');
+      ui.overlay.style.removeProperty('left');
       ui.overlay.hidden = true;
       ui.menu.replaceChildren();
     }

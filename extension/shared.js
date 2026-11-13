@@ -14,7 +14,7 @@ globalThis.Iblock = (() => {
   // counts toward the time limit, but there are no shorts to count.
   const PLATFORMS = Object.freeze([
     { id: 'youtube', kind: 'short', name: 'YouTube Shorts', label: 'YouTube', hosts: ['youtube.com'], where: 'youtube.com/shorts', home: 'https://www.youtube.com/' },
-    { id: 'instagram', kind: 'short', name: 'Instagram Reels', label: 'Instagram', hosts: ['instagram.com'], where: 'Reels and Explore', home: 'https://www.instagram.com/' },
+    { id: 'instagram', kind: 'short', name: 'Instagram Reels', label: 'Instagram', hosts: ['instagram.com'], where: 'Home feed, Reels and Explore', home: 'https://www.instagram.com/' },
     { id: 'tiktok', kind: 'short', name: 'TikTok', label: 'TikTok', hosts: ['tiktok.com'], where: 'All of tiktok.com', home: null },
     { id: 'snapchat', kind: 'short', name: 'Snapchat Spotlight', label: 'Snapchat', hosts: ['snapchat.com'], where: 'snapchat.com/spotlight', home: 'https://www.snapchat.com/' },
     { id: 'facebook', kind: 'short', name: 'Facebook Reels', label: 'Facebook', hosts: ['facebook.com'], where: 'facebook.com/reel', home: 'https://www.facebook.com/' },
@@ -38,6 +38,7 @@ globalThis.Iblock = (() => {
   const PAUSE_SECONDS = 5;
   const PAUSE_GRACE_MS = 15 * 60_000;
   const KEEP_DAYS = 400;
+  const MAX_SEEN = 1000; // shorts remembered per day, so scrolling back doesn't count again
   const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
   const THEMES = ['system', 'light', 'dark'];
 
@@ -177,6 +178,13 @@ globalThis.Iblock = (() => {
     return typeof salt === 'string' && typeof hash === 'string' && salt && hash ? { salt, hash } : null;
   }
 
+  // Today's already-counted shorts, as "platform:hash" ids.
+  function normalizeSeen(raw) {
+    const s = isObj(raw) ? raw : {};
+    const keys = Array.isArray(s.keys) ? s.keys.filter((k) => typeof k === 'string' && k.length <= 64).slice(-MAX_SEEN) : [];
+    return { day: typeof s.day === 'string' && DAY_RE.test(s.day) ? s.day : '', keys };
+  }
+
   function normalizeState(raw) {
     const r = isObj(raw) ? raw : {};
     return {
@@ -184,7 +192,25 @@ globalThis.Iblock = (() => {
       stats: normalizeStats(r.stats),
       lock: normalizeLock(r.lock),
       guard: normalizeGuard(r.guard),
+      seen: normalizeSeen(r.seen),
     };
+  }
+
+  // A short, fixed-size stand-in for a short's id or video URL (FNV-1a).
+  function hashKey(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(36);
+  }
+
+  const countId = (platform, item) => `${platform}:${hashKey(item)}`;
+
+  // The shorts already counted today (empty once the day has turned over).
+  function seenToday(seen, now = Date.now()) {
+    return seen.day === dayKey(now) ? seen.keys.slice() : [];
   }
 
   /* ---------- calendar ---------- */
@@ -590,6 +616,7 @@ globalThis.Iblock = (() => {
     BONUS_SCROLLS,
     PAUSE_SECONDS,
     PAUSE_GRACE_MS,
+    MAX_SEEN,
     DEFAULT_SETTINGS,
     BADGES,
     refusal,
@@ -600,7 +627,11 @@ globalThis.Iblock = (() => {
     normalizeStats,
     normalizeLock,
     normalizeGuard,
+    normalizeSeen,
     normalizeState,
+    hashKey,
+    countId,
+    seenToday,
     emptyDay,
     dayKey,
     dayStart,

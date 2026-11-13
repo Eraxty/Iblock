@@ -361,6 +361,17 @@ describe('stats helpers', () => {
     assert.equal(stats.life.n, 5000);
   });
 
+  test('counted shorts are remembered for the day only', () => {
+    const seen = I.normalizeSeen({ day: I.dayKey(at(12)), keys: ['youtube:x', 42, 'a'.repeat(99)] });
+    assert.deepEqual([...seen.keys], ['youtube:x']);
+    assert.deepEqual([...I.seenToday(seen, at(13))], ['youtube:x']);
+    assert.deepEqual([...I.seenToday(seen, at(0, 5, 1))], [], 'a new day starts fresh');
+    assert.equal(I.hashKey('dQw4w9WgXcQ'), I.hashKey('dQw4w9WgXcQ'));
+    assert.notEqual(I.hashKey('dQw4w9WgXcQ'), I.hashKey('dQw4w9WgXcR'));
+    assert.ok(I.hashKey(`https://v16.tiktokcdn.com/${'x'.repeat(500)}`).length <= 7, 'long video URLs stay short');
+    assert.equal(I.countId('youtube', 'abc'), `youtube:${I.hashKey('abc')}`);
+  });
+
   test('series lines up the last 7 days ending today', () => {
     const stats = I.normalizeStats({ days: { [I.dayKey(at(12))]: { n: 3 }, [I.dayKey(at(12, 0, -6))]: { n: 9 } } });
     const s = I.series(stats, at(12));
@@ -559,6 +570,25 @@ describe('background', () => {
     await send({ type: 'unlock' });
     await send({ type: 'lock', minutes: 30 });
     assert.equal(notes.filter((n) => /First break/.test(n.title)).length, 1, 'only once');
+  });
+
+  test('scrolling back to a short already counted today is free', async () => {
+    const { send, store, I } = fakeBrowser();
+    await send({ type: 'settings', patch: { limit: 2 } });
+    assert.equal((await send({ type: 'count', platform: 'youtube', key: 'a' })).total, 1);
+    assert.equal((await send({ type: 'count', platform: 'youtube', key: 'b' })).total, 2);
+    const back = await send({ type: 'count', platform: 'youtube', key: 'a' });
+    assert.deepEqual([back.allowed, back.repeat], [true, true]);
+    assert.equal(store.stats.days[I.dayKey()].n, 2);
+    assert.equal(store.stats.days[I.dayKey()].b, 0, 'and not a blocked attempt either');
+    assert.equal((await send({ type: 'count', platform: 'youtube', key: 'c' })).allowed, false, 'a new short is still blocked');
+    assert.equal((await send({ type: 'count', platform: 'instagram', key: 'a' })).allowed, false, 'same id on another app is another short');
+    await send({ type: 'lock', minutes: 30 });
+    assert.equal((await send({ type: 'count', platform: 'youtube', key: 'a' })).allowed, false, 'a break blocks re-watching too');
+    assert.deepEqual([...store.seen.keys], ['youtube:a', 'youtube:b']);
+    await send({ type: 'unlock' });
+    await send({ type: 'reset' });
+    assert.equal(store.seen, null, 'reset forgets them');
   });
 
   test('closeTab closes the sender tab', async () => {
