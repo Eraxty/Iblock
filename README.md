@@ -4,6 +4,11 @@ A browser extension that gets you off short-form video. It counts every Short, R
 
 Works on **YouTube Shorts, Instagram (Reels, Explore and the home feed), TikTok, Snapchat Spotlight and Facebook Reels**, plus the endless feeds of **X, Reddit and Pinterest** if you turn them on. Runs in Chrome, Edge, Brave, Opera, Firefox and Zen.
 
+
+# Use it here
+[Google](https://chromewebstore.google.com/detail/lgkhoogbhhbkgcnpjcpmjanackfmnpjb?utm_source=item-share-cb)
+Firefox : coming soon
+
 ## What it does
 
 - **Scroll counter.** Every new short you land on counts as one scroll. See today, this month and lifetime, plus time watched, per app.
