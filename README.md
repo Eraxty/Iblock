@@ -6,8 +6,8 @@ Works on **YouTube Shorts, Instagram (Reels, Explore and the home feed), TikTok,
 
 
 # Use it here
-[Google](https://chromewebstore.google.com/detail/lgkhoogbhhbkgcnpjcpmjanackfmnpjb?utm_source=item-share-cb)
-Firefox : coming soon
+- [Google](https://chromewebstore.google.com/detail/lgkhoogbhhbkgcnpjcpmjanackfmnpjb?utm_source=item-share-cb)
+- Firefox : coming soon
 
 ## What it does
 
